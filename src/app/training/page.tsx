@@ -82,7 +82,7 @@ export default function TrainingPage() {
             {techniques.map((t) => (
               <a
                 key={t.name}
-                href={`/training/${t.name.toLowerCase()}`}
+                href={`/session/${t.name.toLowerCase()}`}
                 className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${t.color} p-8 shadow-lg hover:scale-[1.03] transition-transform`}
               >
                 <div className="absolute top-4 right-4 text-4xl opacity-20 group-hover:opacity-40 transition">

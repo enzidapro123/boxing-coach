@@ -10,25 +10,74 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [canResend, setCanResend] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
+    setCanResend(false);
+
+    const cleanEmail = email.trim().toLowerCase();
     setIsLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+
     setIsLoading(false);
 
     if (error) {
-      setError(error.message);
+      const msg = error.message.toLowerCase();
+      if (msg.includes("email not confirmed")) {
+        setError("Please verify your email before logging in.");
+        setCanResend(true);
+      } else if (msg.includes("invalid login") || msg.includes("invalid credentials")) {
+        setError("Incorrect email or password.");
+      } else {
+        setError(error.message);
+      }
       return;
     }
     router.push("/dashboard");
   };
 
+  const resendVerification = async () => {
+    setIsResending(true);
+    setNotice(null);
+    setError(null);
+    const cleanEmail = email.trim().toLowerCase();
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: cleanEmail,
+      options: {
+        emailRedirectTo:
+          typeof window !== "undefined"
+            ? `${window.location.origin}/auth/callback`
+            : undefined,
+      },
+    });
+
+    setIsResending(false);
+
+    if (error) {
+      const msg = error.message.includes("over email rate limit")
+        ? "Too many attempts. Please wait a minute and try again."
+        : error.message;
+      setError(msg);
+    } else {
+      setNotice("Confirmation email sent. Please check your inbox.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
-      {/* Top Nav (matches LandingPage) */}
+      {/* Top Nav */}
       <nav className="fixed top-0 w-full bg-white/5 backdrop-blur-lg border-b border-white/10 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -108,10 +157,27 @@ export default function LoginPage() {
                   />
                 </div>
 
-                {error && (
-                  <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-                    {error}
+                {notice && (
+                  <p className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                    {notice}
                   </p>
+                )}
+                {error && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                      {error}
+                    </p>
+                    {canResend && (
+                      <button
+                        type="button"
+                        onClick={resendVerification}
+                        disabled={isResending}
+                        className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm font-semibold disabled:opacity-60"
+                      >
+                        {isResending ? "Resending…" : "Resend verification email"}
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 <button
@@ -140,7 +206,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Small footer line to echo brand tone */}
             <p className="text-center text-xs text-gray-400 mt-6">
               © 2025 BlazePose Coach. Train smarter.
             </p>
