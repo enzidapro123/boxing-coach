@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("")  ;
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -25,20 +25,16 @@ export default function RegisterPage() {
 
     setIsLoading(true);
 
-    // 0) Check if username is taken
-    const { data: existingUser, error: userCheckErr } = await supabase
-      .from("users")
-      .select("id")
-      .eq("username", username)
-      .maybeSingle();
+    // 0) Check if username is available via RPC (works with RLS)
+    const { data: isFree, error: rpcErr } = await supabase
+      .rpc("is_username_available", { name: username });
 
-    if (userCheckErr && userCheckErr.code !== "PGRST116") {
-      // ignore 'No rows found' code; handle other errors
+    if (rpcErr) {
       setIsLoading(false);
-      setError(userCheckErr.message);
+      setError(rpcErr.message);
       return;
     }
-    if (existingUser) {
+    if (!isFree) {
       setIsLoading(false);
       setError("That username is already taken.");
       return;
@@ -62,26 +58,31 @@ export default function RegisterPage() {
       return;
     }
 
-    // 2) Save profile row in public.users (same UUID as auth.users)
-    if (authData.user) {
+    // 2) Insert profile row ONLY if we have a session (email confirm OFF)
+    //    If email confirmation is ON, session is null -> skip insert to avoid RLS errors
+    const { data: u } = await supabase.auth.getUser();
+    if (u?.user) {
       const { error: insertError } = await supabase.from("users").insert([
         {
-          id: authData.user.id,
+          id: u.user.id, // must equal auth.uid() to pass RLS
           email,
           username,
         },
       ]);
-
       if (insertError) {
         setIsLoading(false);
         setError(insertError.message);
         return;
       }
+      setIsLoading(false);
+      router.push("/login");
+      return;
     }
 
+    // 3) No session yet (likely because email confirmation is enabled)
+    //    Redirect to a "check your email" page; you can auto-create the profile using a DB trigger.
     setIsLoading(false);
-    // 3) Redirect to login (or a "check your email" page if you use confirm)
-    router.push("/login");
+    router.push("/check-email");
   };
 
   return (
