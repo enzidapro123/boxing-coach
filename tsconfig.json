@@ -13,16 +13,23 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "baseUrl": ".", // 👈 Added: set base to project root
+    "plugins": [{ "name": "next" }],
+
+    // base aliasing
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"] // 👈 Alias @/ → src/
+      "@/*": ["src/*"],
+      // 👇 point @mediapipe/pose to our shim
+      "@mediapipe/pose": ["./src/app/shims/mediapipe-pose.ts"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  // 👇 include .d.ts so module declarations are picked up
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts",
+    ".next/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

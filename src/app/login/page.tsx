@@ -1,19 +1,49 @@
+// app/login/page.tsx
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+
+function isValidEmail(e: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const params = useSearchParams();
+
+  // Prefer ?redirectedFrom=... (set by middleware), else ?next=..., else /dashboard
+  const redirectTo = useMemo(() => {
+    const redirectedFrom = params.get("redirectedFrom");
+    const next = params.get("next");
+    return redirectedFrom || next || "/dashboard";
+  }, [params]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [canResend, setCanResend] = useState(false);
+
+  // If already logged in, send them away fast
+  useEffect(() => {
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        router.replace(redirectTo);
+        router.refresh();
+      }
+    })();
+  }, [redirectTo, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,36 +52,65 @@ export default function LoginPage() {
     setCanResend(false);
 
     const cleanEmail = email.trim().toLowerCase();
-    setIsLoading(true);
+    if (!isValidEmail(cleanEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (!password) {
+      setError("Password is required.");
+      return;
+    }
 
+    setIsLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password,
     });
-
     setIsLoading(false);
 
     if (error) {
       const msg = error.message.toLowerCase();
+
       if (msg.includes("email not confirmed")) {
         setError("Please verify your email before logging in.");
         setCanResend(true);
-      } else if (msg.includes("invalid login") || msg.includes("invalid credentials")) {
-        setError("Incorrect email or password.");
-      } else {
-        setError(error.message);
+        return;
       }
+      if (
+        msg.includes("invalid login") ||
+        msg.includes("invalid credentials") ||
+        msg.includes("invalid email or password") ||
+        msg.includes("invalid email, address or password")
+      ) {
+        setError("Incorrect email or password.");
+        return;
+      }
+      if (msg.includes("too many") || msg.includes("rate limit")) {
+        setError("Too many attempts. Please wait a minute and try again.");
+        return;
+      }
+      setError(error.message);
       return;
     }
-    router.push("/dashboard");
+
+    // ✅ go back to where user came from (middleware) or to ?next= or /dashboard
+    const sp = new URLSearchParams(window.location.search);
+    const back = sp.get("redirectedFrom");
+    router.replace(back || redirectTo);
+    router.refresh();
   };
 
   const resendVerification = async () => {
-    setIsResending(true);
-    setNotice(null);
     setError(null);
-    const cleanEmail = email.trim().toLowerCase();
+    setNotice(null);
 
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setError("Enter the email you used to register first.");
+      return;
+    }
+
+    setIsResending(true);
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: cleanEmail,
@@ -62,17 +121,22 @@ export default function LoginPage() {
             : undefined,
       },
     });
-
     setIsResending(false);
 
     if (error) {
-      const msg = error.message.includes("over email rate limit")
-        ? "Too many attempts. Please wait a minute and try again."
-        : error.message;
-      setError(msg);
-    } else {
-      setNotice("Confirmation email sent. Please check your inbox.");
+      const lower = error.message.toLowerCase();
+      if (
+        lower.includes("over email rate limit") ||
+        lower.includes("too many")
+      ) {
+        setError("Too many attempts. Please wait a minute and try again.");
+      } else {
+        setError(error.message);
+      }
+      return;
     }
+
+    setNotice("Confirmation email sent. Please check your inbox.");
   };
 
   return (
@@ -81,22 +145,25 @@ export default function LoginPage() {
       <nav className="fixed top-0 w-full bg-white/5 backdrop-blur-lg border-b border-white/10 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <a href="/" className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
                 🥊
               </div>
               <span className="text-xl font-bold">BlazePose Coach</span>
-            </a>
+            </Link>
             <div className="hidden md:flex items-center gap-6">
-              <a href="/register" className="text-gray-300 hover:text-white transition-colors">
+              <Link
+                href={`/register?next=${encodeURIComponent(redirectTo)}`}
+                className="text-gray-300 hover:text-white transition-colors"
+              >
                 Register
-              </a>
-              <a
-                href="/login"
+              </Link>
+              <Link
+                href={`/login?next=${encodeURIComponent(redirectTo)}`}
                 className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-5 py-2.5 rounded-lg font-semibold transition-all"
               >
                 Login
-              </a>
+              </Link>
             </div>
           </div>
         </div>
@@ -117,12 +184,16 @@ export default function LoginPage() {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label htmlFor="email" className="block text-sm mb-1 text-gray-300">
+                  <label
+                    htmlFor="email"
+                    className="block text-sm mb-1 text-gray-300"
+                  >
                     Email
                   </label>
                   <input
                     id="email"
                     type="email"
+                    inputMode="email"
                     autoComplete="email"
                     placeholder="you@example.com"
                     className="w-full p-3 rounded-lg bg-white/10 border border-white/20 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-pink-600"
@@ -134,7 +205,10 @@ export default function LoginPage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label htmlFor="password" className="block text-sm mb-1 text-gray-300">
+                    <label
+                      htmlFor="password"
+                      className="block text-sm mb-1 text-gray-300"
+                    >
                       Password
                     </label>
                     <button
@@ -162,6 +236,7 @@ export default function LoginPage() {
                     {notice}
                   </p>
                 )}
+
                 {error && (
                   <div className="space-y-2">
                     <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
@@ -174,7 +249,9 @@ export default function LoginPage() {
                         disabled={isResending}
                         className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm font-semibold disabled:opacity-60"
                       >
-                        {isResending ? "Resending…" : "Resend verification email"}
+                        {isResending
+                          ? "Resending…"
+                          : "Resend verification email"}
                       </button>
                     )}
                   </div>
@@ -190,19 +267,19 @@ export default function LoginPage() {
               </form>
 
               <div className="mt-6 text-sm text-center text-gray-300">
-                <a href="/forgot-password" className="hover:text-white">
+                <Link href="/forgot-password" className="hover:text-white">
                   Forgot password?
-                </a>
+                </Link>
               </div>
 
               <div className="mt-4 text-sm text-center text-gray-300">
                 Don&apos;t have an account?{" "}
-                <a
-                  href="/register"
+                <Link
+                  href={`/register?next=${encodeURIComponent(redirectTo)}`}
                   className="font-semibold text-white hover:underline"
                 >
                   Create one
-                </a>
+                </Link>
               </div>
             </div>
 

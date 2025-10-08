@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
 type ProgressRow = {
@@ -8,7 +9,7 @@ type ProgressRow = {
   technique: string;
   accuracy: number | null;
   duration: number | null; // minutes (optional)
-  created_at: string;      // timestamptz
+  created_at: string; // timestamptz
 };
 
 type SessionRow = {
@@ -16,13 +17,17 @@ type SessionRow = {
   technique: string;
   started_at: string | null;
   ended_at: string | null;
-  duration_seconds: number | null; // optional
-  score: number | null;            // optional accuracy
+  duration_seconds: number | null;
+  score: number | null;
 };
 
-export default function Homepage() {
+export default function DashboardPage() {
+  const router = useRouter();
+
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   const [stats, setStats] = useState({
     accuracy: 0,
@@ -31,130 +36,172 @@ export default function Homepage() {
     techniquesMastered: 0,
     mostPracticed: "-",
   });
+
   const [recent, setRecent] = useState<
     { technique: string; created_at: string; accuracy: number | null }[]
   >([]);
 
   useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    let cancelled = false;
 
-      // Profile
-      const { data: profile } = await supabase
-        .from("users")
-        .select("username, avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
+    const run = async () => {
+      try {
+        setErr(null);
+        setLoading(true);
 
-      setUserName(profile?.username || user.email);
-      setAvatarUrl(profile?.avatar_url || null);
+        // 1) Require auth
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          router.replace("/login");
+          return;
+        }
 
-      // Fetch progress + sessions (both optional)
-      const [progRes, sessRes] = await Promise.all([
-        supabase
-          .from("progress")
-          .select("technique, accuracy, created_at, duration, user_id")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("sessions")
-          .select("technique, started_at, ended_at, duration_seconds, score, user_id")
-          .eq("user_id", user.id)
-          .order("started_at", { ascending: false }),
-      ]);
+        // 2) Profile
+        const { data: profile, error: profileErr } = await supabase
+          .from("users")
+          .select("username, avatar_url")
+          .eq("id", user.id)
+          .maybeSingle();
 
-      const progress: ProgressRow[] = Array.isArray(progRes.data) ? progRes.data : [];
-      const sessions: SessionRow[] = Array.isArray(sessRes.data) ? sessRes.data : [];
+        if (profileErr) throw profileErr;
+        if (cancelled) return;
 
-      // ----- Build stats -----
+        setUserName((profile?.username ?? user.email) || user.email || "User");
+        setAvatarUrl(profile?.avatar_url || null);
 
-      // Session count: prefer sessions table; fallback to progress length
-      const totalSessions = sessions.length || progress.length;
+        // 3) Data
+        const [progRes, sessRes] = await Promise.all([
+          supabase
+            .from("progress")
+            .select("technique, accuracy, created_at, duration, user_id")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("sessions")
+            .select(
+              "technique, started_at, ended_at, duration_seconds, score, user_id"
+            )
+            .eq("user_id", user.id)
+            .order("started_at", { ascending: false }),
+        ]);
 
-      // Accuracy: prefer progress.accuracy; fallback to sessions.score
-      const accSamples: number[] = [];
-      if (progress.length) {
-        for (const r of progress) if (typeof r.accuracy === "number") accSamples.push(r.accuracy);
-      } else if (sessions.length) {
-        for (const r of sessions) if (typeof r.score === "number") accSamples.push(r.score as number);
-      }
-      const avgAccuracy = accSamples.length
-        ? Math.round(accSamples.reduce((a, b) => a + b, 0) / accSamples.length)
-        : 0;
+        const progress: ProgressRow[] = Array.isArray(progRes.data)
+          ? progRes.data
+          : [];
+        const sessions: SessionRow[] = Array.isArray(sessRes.data)
+          ? sessRes.data
+          : [];
 
-      // Total time:
-      // 1) sessions.duration_seconds
-      // 2) else sessions ended-started
-      // 3) else progress.duration (minutes)
-      let totalSeconds = 0;
-      if (sessions.length) {
-        for (const s of sessions) {
-          if (typeof s.duration_seconds === "number") {
-            totalSeconds += s.duration_seconds!;
-          } else if (s.started_at && s.ended_at) {
-            const sec =
-              (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000;
-            if (sec > 0) totalSeconds += sec;
+        // ----- Build stats -----
+        const totalSessions = sessions.length || progress.length;
+
+        const accSamples: number[] = [];
+        if (progress.length) {
+          for (const r of progress)
+            if (typeof r.accuracy === "number") accSamples.push(r.accuracy);
+        } else if (sessions.length) {
+          for (const r of sessions)
+            if (typeof r.score === "number") accSamples.push(r.score as number);
+        }
+        const avgAccuracy = accSamples.length
+          ? Math.round(
+              accSamples.reduce((a, b) => a + b, 0) / accSamples.length
+            )
+          : 0;
+
+        let totalSeconds = 0;
+        if (sessions.length) {
+          for (const s of sessions) {
+            if (typeof s.duration_seconds === "number") {
+              totalSeconds += s.duration_seconds!;
+            } else if (s.started_at && s.ended_at) {
+              const sec =
+                (new Date(s.ended_at).getTime() -
+                  new Date(s.started_at).getTime()) /
+                1000;
+              if (sec > 0) totalSeconds += sec;
+            }
+          }
+        } else if (progress.length) {
+          const mins = progress.reduce((sum, r) => sum + (r.duration || 0), 0);
+          totalSeconds = mins * 60;
+        }
+        const totalHours = (totalSeconds / 3600).toFixed(1);
+
+        const masteredSet = new Set<string>();
+        const sourceForMastery = progress.length ? progress : sessions;
+        for (const r of sourceForMastery) {
+          const acc = (r as any).accuracy ?? (r as any).score ?? null;
+          if (typeof acc === "number" && acc >= 85) {
+            masteredSet.add((r as any).technique);
           }
         }
-      } else if (progress.length) {
-        const mins = progress.reduce((sum, r) => sum + (r.duration || 0), 0);
-        totalSeconds = mins * 60;
-      }
-      const totalHours = (totalSeconds / 3600).toFixed(1);
 
-      // Techniques mastered: accuracy >= 85
-      const masteredSet = new Set<string>();
-      const sourceForMastery = progress.length ? progress : sessions;
-      for (const r of sourceForMastery) {
-        const acc =
-          (r as any).accuracy ?? (r as any).score ?? null;
-        if (typeof acc === "number" && acc >= 85) {
-          masteredSet.add((r as any).technique);
+        const counts: Record<string, number> = {};
+        const sourceForCounts = sessions.length ? sessions : progress;
+        for (const r of sourceForCounts) {
+          const t = (r as any).technique || "-";
+          counts[t] = (counts[t] || 0) + 1;
         }
-      }
+        const mostPracticed =
+          Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "-";
 
-      // Most practiced technique: prefer sessions; fallback to progress
-      const counts: Record<string, number> = {};
-      const sourceForCounts = sessions.length ? sessions : progress;
-      for (const r of sourceForCounts) {
-        const t = (r as any).technique || "-";
-        counts[t] = (counts[t] || 0) + 1;
-      }
-      const mostPracticed =
-        Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "-";
+        const recentUnified: {
+          technique: string;
+          created_at: string;
+          accuracy: number | null;
+        }[] = [];
+        for (const p of progress) {
+          recentUnified.push({
+            technique: p.technique,
+            created_at: p.created_at,
+            accuracy: p.accuracy ?? null,
+          });
+        }
+        for (const s of sessions) {
+          recentUnified.push({
+            technique: s.technique,
+            created_at: s.started_at || s.ended_at || new Date().toISOString(),
+            accuracy: s.score ?? null,
+          });
+        }
+        recentUnified.sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
 
-      // Recent (last 5 combined)
-      const recentUnified: { technique: string; created_at: string; accuracy: number | null }[] = [];
-      for (const p of progress) {
-        recentUnified.push({
-          technique: p.technique,
-          created_at: p.created_at,
-          accuracy: p.accuracy ?? null,
+        if (cancelled) return;
+
+        setStats({
+          accuracy: avgAccuracy,
+          sessions: totalSessions,
+          totalTime: `${totalHours}h`,
+          techniquesMastered: masteredSet.size,
+          mostPracticed,
         });
+        setRecent(recentUnified.slice(0, 5));
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message || "Failed to load dashboard.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      for (const s of sessions) {
-        recentUnified.push({
-          technique: s.technique,
-          created_at: s.started_at || s.ended_at || new Date().toISOString(),
-          accuracy: s.score ?? null,
-        });
-      }
-      recentUnified.sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
+    };
 
-      setStats({
-        accuracy: avgAccuracy,
-        sessions: totalSessions,
-        totalTime: `${totalHours}h`,
-        techniquesMastered: masteredSet.size,
-        mostPracticed,
-      });
-      setRecent(recentUnified.slice(0, 5));
-    })();
-  }, []);
+    run();
+
+    // Keep page in sync if auth changes in another tab
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") router.replace("/login");
+      if (event === "SIGNED_IN") router.replace("/dashboard");
+    });
+
+    return () => {
+      cancelled = true;
+      authListener?.subscription?.unsubscribe?.();
+    };
+  }, [router]);
 
   const iconFor = (raw: string) => {
     const t = (raw || "").toLowerCase();
@@ -166,7 +213,35 @@ export default function Homepage() {
     return "🥊";
   };
 
-  const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+  const pretty = (s: string) =>
+    s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
+        <div className="bg-white/5 border border-white/10 p-6 rounded-xl">
+          <div className="font-semibold mb-2">Error</div>
+          <div className="text-sm text-gray-300">{err}</div>
+          <div className="mt-4">
+            <button
+              onClick={() => router.refresh()}
+              className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -174,19 +249,35 @@ export default function Homepage() {
       <header className="bg-white/5 backdrop-blur-lg border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">🥊</div>
+            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
+              🥊
+            </div>
             <h1 className="text-xl font-bold text-white">BlazePose Coach</h1>
           </div>
-          <div className="flex items-center gap-3">
+
+          <div className="flex items-center gap-4">
             <span className="text-sm text-gray-300">{userName}</span>
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-white/20">
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                <img
+                  src={avatarUrl}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
               )}
             </div>
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                router.replace("/login");
+              }}
+              className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-sm hover:bg-white/20"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </header>
@@ -197,7 +288,9 @@ export default function Homepage() {
           <h2 className="text-4xl font-bold text-white mb-2">
             Welcome back, {userName} 👊
           </h2>
-          <p className="text-gray-400 text-lg">Here's an overview of your training performance.</p>
+          <p className="text-gray-400 text-lg">
+            Here's an overview of your training performance.
+          </p>
         </section>
 
         {/* Stats */}
@@ -235,49 +328,72 @@ export default function Homepage() {
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
           <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
-            <h3 className="text-xl font-semibold text-white mb-6">Quick Actions</h3>
+            <h3 className="text-xl font-semibold text-white mb-6">
+              Quick Actions
+            </h3>
             <div className="flex flex-col gap-4">
-              <a href="/training" className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all transform hover:scale-105 shadow-lg">
+              <a
+                href="/training"
+                className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all transform hover:scale-105 shadow-lg"
+              >
                 🎯 Start Training
               </a>
-              <a href="/history" className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all">
+              <a
+                href="/history"
+                className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all"
+              >
                 📊 View History
               </a>
-              <a href="/profile" className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all">
+              <a
+                href="/profile"
+                className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all"
+              >
                 ⚙️ Profile Settings
               </a>
             </div>
 
             <div className="mt-8 pt-6 border-t border-white/10">
               <h4 className="text-sm text-gray-400 mb-2">Most Practiced</h4>
-              <p className="text-2xl font-bold text-white">{pretty(stats.mostPracticed)}</p>
+              <p className="text-2xl font-bold text-white">
+                {stats.mostPracticed ? pretty(stats.mostPracticed) : "-"}
+              </p>
             </div>
           </div>
 
           {/* Recent Activity */}
           <div className="lg:col-span-2 bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
-            <h3 className="text-xl font-semibold text-white mb-6">Recent Activity</h3>
+            <h3 className="text-xl font-semibold text-white mb-6">
+              Recent Activity
+            </h3>
 
             {recent.length > 0 ? (
               <div className="space-y-4">
                 {recent.map((session, i) => (
-                  <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-5 hover:bg-white/10 transition-all">
+                  <div
+                    key={i}
+                    className="bg-white/5 border border-white/10 rounded-xl p-5 hover:bg-white/10 transition-all"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="text-2xl">{iconFor(session.technique)}</span>
+                          <span className="text-2xl">
+                            {iconFor(session.technique)}
+                          </span>
                           <h4 className="text-lg font-semibold text-white">
                             {pretty(session.technique)}
                           </h4>
                         </div>
                         <p className="text-sm text-gray-400">
-                          {new Date(session.created_at).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {new Date(session.created_at).toLocaleDateString(
+                            "en-US",
+                            {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }
+                          )}
                         </p>
                       </div>
                       <div className="text-right">
@@ -294,10 +410,14 @@ export default function Homepage() {
                             >
                               {session.accuracy}%
                             </div>
-                            <p className="text-xs text-gray-400 mt-1">Accuracy</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Accuracy
+                            </p>
                           </>
                         ) : (
-                          <p className="text-sm text-gray-400">No accuracy recorded</p>
+                          <p className="text-sm text-gray-400">
+                            No accuracy recorded
+                          </p>
                         )}
                       </div>
                     </div>

@@ -1,11 +1,12 @@
 // app/auth/callback/page.tsx
 "use client";
 
-export const dynamic = "force-dynamic"; // ensure this route is never statically cached
+export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/app/lib/supabaseClient";
+// ⬇️ Use a relative import to avoid alias issues
+import { supabase } from "../../lib/supabaseClient";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -13,13 +14,14 @@ export default function AuthCallbackPage() {
   const [msg, setMsg] = useState("Finalizing sign-in…");
 
   useEffect(() => {
-    let unsub: { unsubscribe: () => void } | undefined;
+    // Will hold the unsubscribe handle from onAuthStateChange
+    let subscription: { unsubscribe: () => void } | undefined;
 
     (async () => {
       try {
         const errorDesc = search.get("error_description");
-        const type = search.get("type");
-        const code = search.get("code");
+        const type = search.get("type"); // e.g., "signup" or "recovery"
+        const code = search.get("code"); // PKCE code
 
         if (errorDesc) {
           setMsg(errorDesc);
@@ -27,11 +29,17 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        // Fast path: already signed in?
+        // If we're already signed in, go straight to the dashboard.
         {
-          const { data: { user } } = await supabase.auth.getUser();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
           if (user) {
-            setMsg(type === "signup" ? "Email confirmed! Redirecting…" : "Signed in! Redirecting…");
+            setMsg(
+              type === "signup"
+                ? "Email confirmed! Redirecting…"
+                : "Signed in! Redirecting…"
+            );
             router.replace("/dashboard");
             return;
           }
@@ -47,16 +55,25 @@ export default function AuthCallbackPage() {
           }
         } else {
           // 2) Hash flow (#access_token=..., #refresh_token=...)
-          // If detectSessionInUrl=true, the SDK usually handles this automatically.
-          // We wait a tick, then verify; if not set, we do a manual fallback.
+          // Give the SDK a moment to auto-detect the session in the URL
           await new Promise((r) => setTimeout(r, 50));
-          let { data: { user } } = await supabase.auth.getUser();
+
+          let {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          // If still no user and hash tokens exist, set session manually as a fallback
           if (!user && typeof window !== "undefined" && window.location.hash) {
-            const params = new URLSearchParams(window.location.hash.substring(1));
+            const params = new URLSearchParams(
+              window.location.hash.substring(1)
+            );
             const access_token = params.get("access_token");
             const refresh_token = params.get("refresh_token");
             if (access_token && refresh_token) {
-              const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+              const { error } = await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
               if (error) {
                 setMsg("Could not complete sign-in. Please try again.");
                 setTimeout(() => router.replace("/login"), 1200);
@@ -71,21 +88,31 @@ export default function AuthCallbackPage() {
           history.replaceState(null, "", "/auth/callback");
         }
 
-        // Subscribe in case session lands a moment later
-        unsub = supabase.auth.onAuthStateChange((event) => {
+        // Subscribe in case the session is established a moment later
+        const listener = supabase.auth.onAuthStateChange((event) => {
           if (event === "SIGNED_IN") {
-            setMsg(type === "signup" ? "Email confirmed! Redirecting…" : "Signed in! Redirecting…");
+            setMsg(
+              type === "signup"
+                ? "Email confirmed! Redirecting…"
+                : "Signed in! Redirecting…"
+            );
             router.replace("/dashboard");
           }
-        }).data.subscription;
+        });
+        subscription = listener.data.subscription;
 
-        // Final check (if already set)
-        const { data: { user } } = await supabase.auth.getUser();
+        // Final check — if session is already present now, go.
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user) {
-          setMsg(type === "signup" ? "Email confirmed! Redirecting…" : "Signed in! Redirecting…");
+          setMsg(
+            type === "signup"
+              ? "Email confirmed! Redirecting…"
+              : "Signed in! Redirecting…"
+          );
           router.replace("/dashboard");
         } else {
-          // If still nothing, give the user a path forward
           setMsg("Session not found. Please log in.");
           setTimeout(() => router.replace("/login"), 1200);
         }
@@ -96,7 +123,7 @@ export default function AuthCallbackPage() {
     })();
 
     return () => {
-      unsub?.unsubscribe?.();
+      subscription?.unsubscribe?.();
     };
   }, [router, search]);
 
