@@ -56,49 +56,76 @@ export default function PoseClient({ technique }: Props) {
     return det;
   }, []);
 
-  // -------- Supabase helpers --------
-  const startSupabaseSession = useCallback(async (technique: string) => {
-    const { data: auth } = await supabase.auth.getUser();
-    const user_id = auth.user?.id ?? null;
+  // --------------- Supabase helpers ---------------
 
-    const { data, error } = await supabase
+  const startSupabaseSession = useCallback(async (technique: string) => {
+    // 1) check auth first
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+    if (authErr) {
+      console.warn("auth.getUser error:", authErr);
+    }
+    const user = auth?.user ?? null;
+
+    // If not logged in, keep running locally and skip DB
+    if (!user) {
+      console.warn("No user; skipping Supabase insert. Running local-only.");
+      return `local-${crypto.randomUUID()}`; // still return a session-like id
+    }
+
+    const payload = {
+      user_id: user.id,
+      technique,
+      started_at: new Date().toISOString(),
+      total_reps: 0,
+    };
+
+    // NOTE: maybeSingle() avoids throwing if the server returns an array/empty
+    const { data, error, status } = await supabase
       .from("training_sessions")
-      .insert({
-        user_id,
-        technique,
-        started_at: new Date().toISOString(),
-        total_reps: 0,
-      })
+      .insert(payload)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error("start session error", error);
-      return null;
+      console.warn("⚠️ Supabase insert warning:", error);
+      return `local-${crypto.randomUUID()}`;
+    } else {
+      console.log("✅ Session created successfully:", data);
     }
-    return data.id as string;
+
+    return (data?.id as string) ?? `local-${crypto.randomUUID()}`;
   }, []);
 
   const logRep = useCallback(
     async (sid: string, technique: string, angle: number | null) => {
-      const { error } = await supabase.from("rep_events").insert({
+      // Don't try to log if we're in a "local-" session
+      if (sid.startsWith("local-")) return;
+
+      const payload = {
         session_id: sid,
         technique,
         rep_at: new Date().toISOString(),
         feature_peak_angle: angle,
-      });
-      if (error) console.error("log rep error", error);
+      };
+      const { error, status } = await supabase
+        .from("rep_events")
+        .insert(payload);
+      if (error) {
+        console.warn("rep insert failed", { status, error, payload });
+      }
     },
     []
   );
 
   const finishSupabaseSession = useCallback(
     async (sid: string, totalReps: number, startedAtMs: number) => {
+      if (sid.startsWith("local-")) return; // nothing to update in DB
+
       const durationSec = Math.max(
         0,
         Math.round((Date.now() - startedAtMs) / 1000)
       );
-      const { error } = await supabase
+      const { error, status } = await supabase
         .from("training_sessions")
         .update({
           finished_at: new Date().toISOString(),
@@ -106,7 +133,16 @@ export default function PoseClient({ technique }: Props) {
           duration_sec: durationSec,
         })
         .eq("id", sid);
-      if (error) console.error("finish session error", error);
+
+      if (error) {
+        console.warn("finish session error", {
+          status,
+          error,
+          sid,
+          totalReps,
+          durationSec,
+        });
+      }
     },
     []
   );
@@ -193,6 +229,9 @@ export default function PoseClient({ technique }: Props) {
     const sid = await startSupabaseSession(technique);
     setSessionId(sid);
     setStartedAtMs(Date.now());
+    // inside start() just before calling startSupabaseSession(...)
+    const ping = await supabase.from("training_sessions").select("*").limit(1);
+    console.log("DB ping", ping);
 
     rafRef.current = requestAnimationFrame(loop);
   }, [
