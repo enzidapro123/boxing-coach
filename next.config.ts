@@ -2,30 +2,28 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  poweredByHeader: false,
-
-  // Turbopack alias (Next 15)
+  webpack(config) {
+    // 👇 Ensure alias resolves before Turbopack touches the bundle
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@mediapipe/pose": path.resolve(
+        __dirname,
+        "src/app/shims/mediapipe-pose.ts"
+      ),
+      "@mediapipe/pose/pose": path.resolve(
+        __dirname,
+        "src/app/shims/mediapipe-pose.ts"
+      ),
+    };
+    return config;
+  },
   experimental: {
     turbo: {
       resolveAlias: {
         "@mediapipe/pose": "./src/app/shims/mediapipe-pose.ts",
+        "@mediapipe/pose/pose": "./src/app/shims/mediapipe-pose.ts",
       },
     },
-  },
-
-  webpack(config) {
-    // your @ alias
-    config.resolve.alias ||= {};
-    config.resolve.alias["@"] = path.resolve(__dirname, "src");
-
-    // Shim @mediapipe/pose (Webpack path)
-    config.resolve.alias["@mediapipe/pose"] = path.resolve(
-      __dirname,
-      "src/app/shims/mediapipe-pose.ts"
-    );
-
-    return config;
   },
 };
 

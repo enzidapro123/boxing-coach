@@ -1,3 +1,5 @@
-// Minimal ESM shim so "import { Pose } from '@mediapipe/pose'" doesn't explode.
-export class Pose {}
-export default {};
+// ✅ Dummy shim so Next.js / Turbopack stop failing on @mediapipe/pose imports.
+export class Pose {
+  close() {}
+}
+export default Pose;

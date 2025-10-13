@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import PoseClient from "./PoseClient";
+import "@tensorflow/tfjs-converter";
 
 type TechniqueName = "jab" | "cross" | "hook" | "uppercut";
 

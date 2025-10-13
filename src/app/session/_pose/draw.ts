@@ -1,12 +1,12 @@
 // src/app/session/_pose/draw.ts
 import type * as posedetection from "@tensorflow-models/pose-detection";
+
 type KP = posedetection.Keypoint;
 
-// Lower threshold helps in indoor lighting
-const THRESH = 0.2;
+// Adjusted threshold for better skeleton visibility
+const THRESH = 0.3;
 
-// Connections (shoulders, torso, arms, legs)
-const EDGES: [string, string][] = [
+const EDGES: [keyof typeof NAME, keyof typeof NAME][] = [
   ["left_shoulder", "right_shoulder"],
   ["left_hip", "right_hip"],
   ["left_shoulder", "left_elbow"],
@@ -19,9 +19,12 @@ const EDGES: [string, string][] = [
   ["left_knee", "left_ankle"],
   ["right_hip", "right_knee"],
   ["right_knee", "right_ankle"],
+  // Optional: Add neck for better torso (connects shoulders to head)
+  ["left_shoulder", "nose"],
+  ["right_shoulder", "nose"],
+  // TODO: Add face/hands if needed, e.g., ["left_eye", "left_ear"]
 ];
 
-// BlazePose 33-keypoint index map
 const NAME = {
   nose: 0,
   left_eye_inner: 1,
@@ -59,56 +62,115 @@ const NAME = {
 } as const;
 
 function getKP(kps: KP[], name: keyof typeof NAME): KP | undefined {
-  const idx = NAME[name];
-  const k = kps[idx];
-  return k && k.score != null ? k : undefined;
+  const index = NAME[name];
+  const kp = kps[index];
+  return visible(kp) ? kp : undefined; // Early filter for consistency
 }
 
+function finite(v: number | undefined): boolean {
+  return Number.isFinite(v ?? NaN);
+}
+
+// Only draw points that (1) have a score and (2) finite x/y
 function visible(k?: KP): k is KP {
-  return !!k && (k.score ?? 0) >= THRESH;
+  return !!k && (k.score ?? 0) >= THRESH && finite(k.x) && finite(k.y);
 }
 
+// Fallback: accept all keypoints if none pass threshold
+function visibleWithFallback(k: KP | undefined, allKps: KP[]): k is KP {
+  if (!k || !finite(k.x) || !finite(k.y)) return false;
+
+  // If score meets threshold, use it
+  if ((k.score ?? 0) >= THRESH) return true;
+
+  // Fallback: if no keypoints pass threshold, accept all with finite coordinates
+  const validKps = allKps.filter((kp) => finite(kp.x) && finite(kp.y));
+  const passingKps = allKps.filter((kp) => (kp.score ?? 0) >= THRESH);
+
+  if (passingKps.length === 0 && validKps.length > 0) {
+    return true; // Accept all valid keypoints as fallback
+  }
+
+  return false;
+}
+
+// ----------------------------- DRAW KEYPOINTS ------------------------------
 export function drawKeypoints(ctx: CanvasRenderingContext2D, kps: KP[]) {
   ctx.save();
   for (const k of kps) {
-    if (!visible(k)) continue;
+    if (!visibleWithFallback(k, kps)) continue;
     ctx.beginPath();
-    ctx.arc(k.x, k.y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,165,0,0.95)";
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
-    ctx.lineWidth = 1;
+    // ↑ make dots slightly larger for visibility (was 3 → 4.5)
+    ctx.arc(k.x!, k.y!, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 200, 0, 0.95)"; // bright yellow-orange
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.lineWidth = 1.5;
     ctx.fill();
     ctx.stroke();
   }
   ctx.restore();
 }
 
-export function drawSkeleton(ctx: CanvasRenderingContext2D, kps: KP[]) {
+// ------------------------------ DRAW SKELETON ------------------------------
+export function drawSkeleton(
+  ctx: CanvasRenderingContext2D,
+  kps: KP[],
+  // Optional: Add param for technique-specific highlighting (e.g., for jab)
+  highlightArm?: "left" | "right" | null
+) {
   ctx.save();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgb(0 200 255)";
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = "rgba(0, 200, 255, 0.95)"; // cyan-blue lines (default)
+  ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+  ctx.shadowBlur = 3;
+
   for (const [aName, bName] of EDGES) {
-    const a = getKP(kps, aName as keyof typeof NAME);
-    const b = getKP(kps, bName as keyof typeof NAME);
-    if (!visible(a) || !visible(b)) continue;
+    const a = getKP(kps, aName);
+    const b = getKP(kps, bName);
+    if (
+      !a ||
+      !b ||
+      !visibleWithFallback(a, kps) ||
+      !visibleWithFallback(b, kps)
+    )
+      continue;
+
+    // Technique highlight: e.g., red for right arm on "jab"
+    if (
+      highlightArm === "right" &&
+      (aName.includes("right") || bName.includes("right"))
+    ) {
+      ctx.strokeStyle = "rgba(255, 0, 0, 0.95)"; // Red for punching arm
+    } else if (
+      highlightArm === "left" &&
+      (aName.includes("left") || bName.includes("left"))
+    ) {
+      ctx.strokeStyle = "rgba(0, 255, 0, 0.95)"; // Green for left
+    } else {
+      ctx.strokeStyle = "rgba(0, 200, 255, 0.95)"; // Reset to default
+    }
+
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(a.x!, a.y!);
+    ctx.lineTo(b.x!, b.y!);
     ctx.stroke();
   }
+
   ctx.restore();
 }
 
+// ------------------------- DRAW BOX + CONFIDENCE ---------------------------
 export function drawBBoxAndLabel(ctx: CanvasRenderingContext2D, kps: KP[]) {
   const good = kps.filter(visible);
   if (!good.length) return;
 
-  const xs = good.map((k) => k.x);
-  const ys = good.map((k) => k.y);
+  const xs = good.map((k) => k.x!);
+  const ys = good.map((k) => k.y!);
   const minX = Math.min(...xs),
     maxX = Math.max(...xs);
   const minY = Math.min(...ys),
     maxY = Math.max(...ys);
+
   const score = good.reduce((s, k) => s + (k.score ?? 0), 0) / good.length;
 
   ctx.save();
@@ -116,7 +178,7 @@ export function drawBBoxAndLabel(ctx: CanvasRenderingContext2D, kps: KP[]) {
   ctx.strokeStyle = "rgb(255, 60, 60)";
   ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
 
-  const label = `person ${score.toFixed(2)}`;
+  const label = `pose ${score.toFixed(2)}`;
   ctx.font = "14px sans-serif";
   const w = ctx.measureText(label).width + 10,
     h = 18;

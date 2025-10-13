@@ -20,7 +20,8 @@
     "paths": {
       "@/*": ["src/*"],
       // 👇 point @mediapipe/pose to our shim
-      "@mediapipe/pose": ["./src/app/shims/mediapipe-pose.ts"]
+      "@mediapipe/pose": ["src/shims/mediapipe-pose.ts"],
+      "@mediapipe/pose/pose": ["src/shims/mediapipe-pose.ts"]
     }
   },
   // 👇 include .d.ts so module declarations are picked up
