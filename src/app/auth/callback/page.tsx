@@ -1,138 +1,53 @@
-// app/auth/callback/page.tsx
-"use client";
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
-export const dynamic = "force-dynamic";
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const redirectedFrom = url.searchParams.get("redirectedFrom") || "/dashboard";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-// ⬇️ Use a relative import to avoid alias issues
-import { supabase } from "../../lib/supabaseClient";
+  const supabase = createRouteHandlerClient({ cookies });
 
-export default function AuthCallbackPage() {
-  const router = useRouter();
-  const search = useSearchParams();
-  const [msg, setMsg] = useState("Finalizing sign-in…");
+  // 1) Exchange PKCE code → sets auth cookies for your app
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      // If exchange failed, bounce to login
+      return NextResponse.redirect(new URL("/login", url.origin));
+    }
+  }
 
-  useEffect(() => {
-    // Will hold the unsubscribe handle from onAuthStateChange
-    let subscription: { unsubscribe: () => void } | undefined;
+  // 2) Fetch the signed-in user (now that cookies are set)
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    // 3) If we have a desired username in metadata, apply it once
+    const desired = String(user.user_metadata?.desired_username ?? "").trim();
 
-    (async () => {
-      try {
-        const errorDesc = search.get("error_description");
-        const type = search.get("type"); // e.g., "signup" or "recovery"
-        const code = search.get("code"); // PKCE code
+    if (desired.length >= 3 && /^[a-zA-Z0-9._]+$/.test(desired)) {
+      // Check if my current row already has a username
+      const { data: me } = await supabase
+        .from("users")
+        .select("username")
+        .eq("id", user.id)
+        .maybeSingle();
 
-        if (errorDesc) {
-          setMsg(errorDesc);
-          setTimeout(() => router.replace("/login"), 1200);
-          return;
+      if (!me?.username) {
+        // Availability (case-insensitive)
+        const { data: taken } = await supabase
+          .from("users")
+          .select("id")
+          .ilike("username", desired)
+          .maybeSingle();
+
+        if (!taken || taken.id === user.id) {
+          // Write it (RLS policy 'update own' must be in place)
+          await supabase.from("users").update({ username: desired }).eq("id", user.id);
         }
-
-        // If we're already signed in, go straight to the dashboard.
-        {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (user) {
-            setMsg(
-              type === "signup"
-                ? "Email confirmed! Redirecting…"
-                : "Signed in! Redirecting…"
-            );
-            router.replace("/dashboard");
-            return;
-          }
-        }
-
-        // 1) PKCE flow (?code=...)
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            setMsg("Could not complete sign-in. Please try again.");
-            setTimeout(() => router.replace("/login"), 1200);
-            return;
-          }
-        } else {
-          // 2) Hash flow (#access_token=..., #refresh_token=...)
-          // Give the SDK a moment to auto-detect the session in the URL
-          await new Promise((r) => setTimeout(r, 50));
-
-          let {
-            data: { user },
-          } = await supabase.auth.getUser();
-
-          // If still no user and hash tokens exist, set session manually as a fallback
-          if (!user && typeof window !== "undefined" && window.location.hash) {
-            const params = new URLSearchParams(
-              window.location.hash.substring(1)
-            );
-            const access_token = params.get("access_token");
-            const refresh_token = params.get("refresh_token");
-            if (access_token && refresh_token) {
-              const { error } = await supabase.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-              if (error) {
-                setMsg("Could not complete sign-in. Please try again.");
-                setTimeout(() => router.replace("/login"), 1200);
-                return;
-              }
-            }
-          }
-        }
-
-        // Clean the URL (remove hash/query noise)
-        if (typeof window !== "undefined") {
-          history.replaceState(null, "", "/auth/callback");
-        }
-
-        // Subscribe in case the session is established a moment later
-        const listener = supabase.auth.onAuthStateChange((event) => {
-          if (event === "SIGNED_IN") {
-            setMsg(
-              type === "signup"
-                ? "Email confirmed! Redirecting…"
-                : "Signed in! Redirecting…"
-            );
-            router.replace("/dashboard");
-          }
-        });
-        subscription = listener.data.subscription;
-
-        // Final check — if session is already present now, go.
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          setMsg(
-            type === "signup"
-              ? "Email confirmed! Redirecting…"
-              : "Signed in! Redirecting…"
-          );
-          router.replace("/dashboard");
-        } else {
-          setMsg("Session not found. Please log in.");
-          setTimeout(() => router.replace("/login"), 1200);
-        }
-      } catch {
-        setMsg("Something went wrong. Redirecting to login…");
-        setTimeout(() => router.replace("/login"), 1200);
       }
-    })();
+    }
+  }
 
-    return () => {
-      subscription?.unsubscribe?.();
-    };
-  }, [router, search]);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl text-center">
-        <div className="text-2xl font-bold mb-2">BlazePose Coach</div>
-        <p className="text-gray-300">{msg}</p>
-      </div>
-    </div>
-  );
+  // 4) Redirect to the app
+  return NextResponse.redirect(new URL(redirectedFrom, url.origin));
 }
