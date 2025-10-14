@@ -6,7 +6,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 
 /* -------------------------------------------------- Types */
-type TechniqueName = "jab" | "cross" | "hook" | "uppercut";
+type TechniqueName = "jab" | "cross" | "hook" | "uppercut" | "guard";
 type Stance = "orthodox" | "southpaw";
 type Props = { technique: TechniqueName; stance?: Stance };
 type KP = { x: number; y: number; z?: number; score?: number; name?: string };
@@ -76,7 +76,7 @@ function toKeypoints(
 ): KP[] {
   if (!landmarks || !landmarks.length) return [];
   return landmarks.map((p, i) => {
-    const x = canvasW - p.x * canvasW; // mirror X to match mirrored video
+    const x = canvasW - p.x * canvasW; // mirror X
     const y = p.y * canvasH;
     const score = typeof p.visibility === "number" ? p.visibility : 0.9;
     return { x, y, z: p.z, score, name: NAMES[i] as string };
@@ -103,7 +103,7 @@ function angleDeg(a?: KP, b?: KP, c?: KP) {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-/* Lead arm helper: orthodox → left hand jab, southpaw → right hand jab */
+/* Lead arm helper */
 const leadArm = (stance?: Stance): Arm =>
   stance === "southpaw" ? "right" : "left";
 
@@ -123,7 +123,7 @@ export default function PoseClient({ technique, stance }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
 
-  /* ---------- Punch phase state (jab/cross) */
+  /* ---------- Punch/cross state */
   const lastRatio = useRef<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -140,7 +140,7 @@ export default function PoseClient({ technique, stance }: Props) {
     right: { ratio: number; elbow: number; align: number } | null;
   }>({ left: null, right: null });
 
-  /* ---------- Hook phase state */
+  /* ---------- Hook state */
   const hookLastLat = useRef<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -167,7 +167,7 @@ export default function PoseClient({ technique, stance }: Props) {
     } | null;
   }>({ left: null, right: null });
 
-  /* ---------- Uppercut phase state */
+  /* ---------- Uppercut (+ smoothing) */
   const upLastRise = useRef<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -192,8 +192,6 @@ export default function PoseClient({ technique, stance }: Props) {
       reach: number;
     } | null;
   }>({ left: null, right: null });
-
-  /* ---- NEW: smoothed rise + previous for velocity (per arm) ---- */
   const upEmaRise = useRef<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -202,6 +200,12 @@ export default function PoseClient({ technique, stance }: Props) {
     left: 0,
     right: 0,
   });
+
+  /* ---------- Guard timing + rate-limited hints */
+  const guardLastTs = useRef<number | null>(null);
+  const guardAccumMs = useRef(0);
+  const guardWasUp = useRef(false);
+  const guardLastHintTs = useRef(0); // for periodic warnings when NOT ok
 
   /* -------------------------------- camera -------------------------------- */
   const initCamera = useCallback(async () => {
@@ -227,7 +231,6 @@ export default function PoseClient({ technique, stance }: Props) {
         video.addEventListener("loadeddata", () => res(), { once: true })
       );
     }
-    console.log("🎥 Camera ready:", video.videoWidth, "x", video.videoHeight);
     return video;
   }, []);
 
@@ -247,7 +250,6 @@ export default function PoseClient({ technique, stance }: Props) {
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    console.log("🤖 MediaPipe PoseLandmarker ready (WASM)");
     return lm;
   }, []);
 
@@ -301,7 +303,6 @@ export default function PoseClient({ technique, stance }: Props) {
       const { ctx, width, height } = syncCanvasToCSS(canvas);
       if (!video.videoWidth || !video.videoHeight) return;
 
-      // Draw mirrored video frame
       ctx.clearRect(0, 0, width, height);
       ctx.save();
       ctx.scale(-1, 1);
@@ -321,13 +322,16 @@ export default function PoseClient({ technique, stance }: Props) {
         drawBBoxAndLabel(ctx, kps as any);
       }
 
-      // HUD
       ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.fillRect(8, height - 58, 200, 50);
+      ctx.fillRect(8, height - 58, 220, 50);
       ctx.fillStyle = "#fff";
       ctx.font = "14px sans-serif";
       ctx.fillText(`Technique: ${technique}`, 16, height - 34);
-      ctx.fillText(`Reps: ${reps}`, 16, height - 14);
+      ctx.fillText(
+        `${technique === "guard" ? "Hold (s)" : "Reps"}: ${reps}`,
+        16,
+        height - 14
+      );
     },
     [technique, reps]
   );
@@ -348,10 +352,22 @@ export default function PoseClient({ technique, stance }: Props) {
     const bodyScale = dist(ls, rs) || 1; // shoulder width
     const elbow = angleDeg(s, e, w); // straight ≈ 180
     const alignY = Math.abs((w?.y ?? 0) - (s?.y ?? 0)) / bodyScale;
-    const extension = dist(s, w) / bodyScale; // shoulder→wrist
+    const extension = dist(s, w) / bodyScale;
     const lateral = Math.abs((w?.x ?? 0) - (s?.x ?? 0)) / bodyScale;
     const rise = ((s?.y ?? 0) - (w?.y ?? 0)) / bodyScale; // wrist above shoulder => positive
-    return { elbow, alignY, extension, lateral, rise, bodyScale, s, e, w };
+    return {
+      elbow,
+      alignY,
+      extension,
+      lateral,
+      rise,
+      bodyScale,
+      s,
+      e,
+      w,
+      ls,
+      rs,
+    };
   }
 
   const pushLog = (item: LogDraft) =>
@@ -360,10 +376,9 @@ export default function PoseClient({ technique, stance }: Props) {
       return next.slice(0, 12);
     });
 
-  /* ----------------------------- Jab detection (lead-only) ---------------- */
+  /* ----------------------------- Jab (lead-only) -------------------------- */
   function processJab(kps: KP[]) {
     if (!kps.length) return;
-
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
     const active: Arm = L.extension >= R.extension ? "left" : "right";
@@ -378,9 +393,9 @@ export default function PoseClient({ technique, stance }: Props) {
       lastRatio.current[active] = 0;
       return;
     }
-    const metrics = active === "left" ? L : R;
+    const m = active === "left" ? L : R;
 
-    const ratio = metrics.extension;
+    const ratio = m.extension;
     const was = phase.current[active];
     const prev = lastRatio.current[active] || 0;
 
@@ -390,28 +405,18 @@ export default function PoseClient({ technique, stance }: Props) {
 
     if (was === "idle" && ratio > START_EXT && ratio > prev) {
       phase.current[active] = "extending";
-      peak.current[active] = {
-        ratio,
-        elbow: metrics.elbow,
-        align: metrics.alignY,
-      };
+      peak.current[active] = { ratio, elbow: m.elbow, align: m.alignY };
     }
 
     if (was === "extending") {
       if (peak.current[active] && ratio > peak.current[active]!.ratio) {
-        peak.current[active] = {
-          ratio,
-          elbow: metrics.elbow,
-          align: metrics.alignY,
-        };
+        peak.current[active] = { ratio, elbow: m.elbow, align: m.alignY };
       }
-
       const p = peak.current[active]!;
       if (p && ratio < p.ratio * (1 - DROP_FRAC)) {
         const straight = p.elbow >= 160;
         const aligned = p.align <= 0.18;
         const bigReach = p.ratio >= PEAK_MIN;
-
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct jab (${mustBe} arm)` });
@@ -425,7 +430,6 @@ export default function PoseClient({ technique, stance }: Props) {
             .join("; ");
           pushLog({ kind: "warn", text: `Adjust your jab: ${tips}` });
         }
-
         phase.current[active] = "idle";
         peak.current[active] = null;
       }
@@ -434,16 +438,15 @@ export default function PoseClient({ technique, stance }: Props) {
     lastRatio.current[active] = ratio;
   }
 
-  /* ----------------------------- Cross detection -------------------------- */
+  /* ----------------------------- Cross ------------------------------------ */
   function processCross(kps: KP[]) {
     if (!kps.length) return;
-
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
     const active: Arm = L.extension >= R.extension ? "left" : "right";
-    const metrics = active === "left" ? L : R;
+    const m = active === "left" ? L : R;
 
-    const ratio = metrics.extension;
+    const ratio = m.extension;
     const was = phase.current[active];
     const prev = lastRatio.current[active] || 0;
 
@@ -453,28 +456,18 @@ export default function PoseClient({ technique, stance }: Props) {
 
     if (was === "idle" && ratio > START_EXT && ratio > prev) {
       phase.current[active] = "extending";
-      peak.current[active] = {
-        ratio,
-        elbow: metrics.elbow,
-        align: metrics.alignY,
-      };
+      peak.current[active] = { ratio, elbow: m.elbow, align: m.alignY };
     }
 
     if (was === "extending") {
       if (peak.current[active] && ratio > peak.current[active]!.ratio) {
-        peak.current[active] = {
-          ratio,
-          elbow: metrics.elbow,
-          align: metrics.alignY,
-        };
+        peak.current[active] = { ratio, elbow: m.elbow, align: m.alignY };
       }
-
       const p = peak.current[active]!;
       if (p && ratio < p.ratio * (1 - DROP_FRAC)) {
         const straight = p.elbow >= 160;
         const aligned = p.align <= 0.18;
         const bigReach = p.ratio >= PEAK_MIN;
-
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct cross (${active} arm)` });
@@ -491,7 +484,6 @@ export default function PoseClient({ technique, stance }: Props) {
             text: `Adjust your cross (${active}): ${tips}`,
           });
         }
-
         phase.current[active] = "idle";
         peak.current[active] = null;
       }
@@ -500,17 +492,16 @@ export default function PoseClient({ technique, stance }: Props) {
     lastRatio.current[active] = ratio;
   }
 
-  /* ----------------------------- Hook detection --------------------------- */
+  /* ----------------------------- Hook ------------------------------------- */
   function processHook(kps: KP[]) {
     if (!kps.length) return;
-
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
     const active: Arm = L.lateral >= R.lateral ? "left" : "right";
-    const metrics = active === "left" ? L : R;
+    const m = active === "left" ? L : R;
 
-    const lateral = metrics.lateral;
-    const reach = metrics.extension;
+    const lateral = m.lateral;
+    const reach = m.extension;
     const was = hookPhase.current[active];
     const prevLat = hookLastLat.current[active] || 0;
 
@@ -526,8 +517,8 @@ export default function PoseClient({ technique, stance }: Props) {
       hookPhase.current[active] = "swinging";
       hookPeak.current[active] = {
         lateral,
-        elbow: metrics.elbow,
-        align: metrics.alignY,
+        elbow: m.elbow,
+        align: m.alignY,
         reach,
       };
     }
@@ -539,19 +530,17 @@ export default function PoseClient({ technique, stance }: Props) {
       ) {
         hookPeak.current[active] = {
           lateral,
-          elbow: metrics.elbow,
-          align: metrics.alignY,
+          elbow: m.elbow,
+          align: m.alignY,
           reach,
         };
       }
-
       const p = hookPeak.current[active]!;
       if (p && lateral < p.lateral * (1 - DROP_FRAC)) {
         const elbowOk = p.elbow >= ELBOW_MIN && p.elbow <= ELBOW_MAX;
         const alignOk = p.align <= ALIGN_Y_MAX;
         const latOk = p.lateral >= PEAK_MIN_LAT;
         const notCross = p.reach <= REACH_MAX;
-
         if (elbowOk && alignOk && latOk && notCross) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct hook (${active} arm)` });
@@ -569,7 +558,6 @@ export default function PoseClient({ technique, stance }: Props) {
             text: `Adjust your hook (${active}): ${tips}`,
           });
         }
-
         hookPhase.current[active] = "idle";
         hookPeak.current[active] = null;
       }
@@ -578,34 +566,29 @@ export default function PoseClient({ technique, stance }: Props) {
     hookLastLat.current[active] = lateral;
   }
 
-  /* --------------------------- Uppercut detection (improved) -------------- */
+  /* --------------------------- Uppercut (improved) ------------------------ */
   function processUppercut(kps: KP[]) {
     if (!kps.length) return;
-
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
-    // choose arm with stronger upward motion (rise)
     const active: Arm = L.rise >= R.rise ? "left" : "right";
     const m = active === "left" ? L : R;
 
-    // --- Smoothing & velocity ---
-    const alpha = 0.4; // EMA smoothing factor
+    const alpha = 0.4;
     const emaPrev = upEmaRise.current[active];
     const emaCurr = alpha * m.rise + (1 - alpha) * emaPrev;
     upEmaRise.current[active] = emaCurr;
-
-    const vel = emaCurr - (upPrevEma.current[active] ?? 0); // upward velocity
+    const vel = emaCurr - (upPrevEma.current[active] ?? 0);
     upPrevEma.current[active] = emaCurr;
 
-    // --- More forgiving thresholds ---
-    const START_RISE = 0.15; // start earlier
-    const PEAK_MIN_R = 0.4; // smaller peak allowed
-    const DROP_FRAC = 0.12; // 12% drop signals completion
-    const VEL_MIN = 0.02; // noticeable acceleration upward
+    const START_RISE = 0.15;
+    const PEAK_MIN_R = 0.4;
+    const DROP_FRAC = 0.12;
+    const VEL_MIN = 0.02;
     const ELBOW_MIN = 55;
     const ELBOW_MAX = 125;
-    const LATERAL_MAX = 0.75; // allow some arc
-    const REACH_MAX = 1.25; // allow modest forward extension
+    const LATERAL_MAX = 0.75;
+    const REACH_MAX = 1.25;
 
     const was = upPhase.current[active];
     const prevRise = upLastRise.current[active] || 0;
@@ -632,14 +615,12 @@ export default function PoseClient({ technique, stance }: Props) {
           reach: m.extension,
         };
       }
-
       const p = upPeak.current[active]!;
       if (p && emaCurr < p.rise * (1 - DROP_FRAC)) {
         const elbowOk = p.elbow >= ELBOW_MIN && p.elbow <= ELBOW_MAX;
         const vertical = p.lateral <= LATERAL_MAX;
         const riseOk = p.rise >= PEAK_MIN_R;
         const notCross = p.reach <= REACH_MAX;
-
         if (elbowOk && vertical && riseOk && notCross) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct uppercut (${active} arm)` });
@@ -657,13 +638,112 @@ export default function PoseClient({ technique, stance }: Props) {
             text: `Adjust your uppercut (${active}): ${tips}`,
           });
         }
-
         upPhase.current[active] = "idle";
         upPeak.current[active] = null;
       }
     }
 
     upLastRise.current[active] = emaCurr;
+  }
+
+  /* ----------------------------- Guard (hold + hints) --------------------- */
+  /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
+  function processGuard(kps: KP[]) {
+    if (!kps.length) return;
+
+    const k = kpMap(kps);
+    const L = evalArm(kps, "left");
+    const R = evalArm(kps, "right");
+
+    // 🎯 Face keypoints to detect contact
+    const faceKeys = [
+      "left_eye_inner",
+      "left_eye",
+      "left_eye_outer",
+      "right_eye_inner",
+      "right_eye",
+      "right_eye_outer",
+      "mouth_left",
+      "mouth_right",
+      "nose",
+    ] as const;
+
+    const facePts = faceKeys.map((n) => k[n as string]).filter(Boolean) as KP[];
+    if (facePts.length < 3) return;
+
+    // Estimate face width (for detection radius)
+    const le = k["left_eye"],
+      re = k["right_eye"];
+    const ml = k["mouth_left"],
+      mr = k["mouth_right"];
+    const faceWidth =
+      (le && re && dist(le, re)) ||
+      (ml && mr && dist(ml, mr)) ||
+      (() => {
+        const xs = facePts.map((p) => p.x);
+        return Math.max(...xs) - Math.min(...xs);
+      })();
+
+    const S = L.bodyScale || R.bodyScale || 1;
+    const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth); // sensitivity radius
+
+    // 🖐️ Hand keypoints (3 per hand)
+    const leftHandPts = [
+      k["left_wrist"],
+      k["left_index"],
+      k["left_thumb"],
+    ].filter(Boolean) as KP[];
+    const rightHandPts = [
+      k["right_wrist"],
+      k["right_index"],
+      k["right_thumb"],
+    ].filter(Boolean) as KP[];
+
+    if (!leftHandPts.length || !rightHandPts.length) return;
+
+    // Minimum distance between hand point and any face point
+    const minDistToFace = (points: KP[]) =>
+      Math.min(...points.flatMap((p) => facePts.map((f) => dist(p, f))));
+
+    const dL = minDistToFace(leftHandPts);
+    const dR = minDistToFace(rightHandPts);
+
+    const leftOK = Number.isFinite(dL) && dL <= RADIUS;
+    const rightOK = Number.isFinite(dR) && dR <= RADIUS;
+    const bothOK = leftOK && rightOK;
+
+    // ⏱️ Time-based guard accumulation
+    const now = performance.now();
+    const last = guardLastTs.current ?? now;
+    const dt = now - last;
+    guardLastTs.current = now;
+
+    if (bothOK) {
+      guardAccumMs.current += dt;
+      if (!guardWasUp.current) {
+        pushLog({ kind: "ok", text: "Guard up — both hands covering face." });
+        guardWasUp.current = true;
+      }
+      const STEP = 1000; // log every second
+      while (guardAccumMs.current >= STEP) {
+        setReps((r) => r + 1);
+        guardAccumMs.current -= STEP;
+        pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
+      }
+    } else {
+      const HINT_COOLDOWN = 800;
+      if (now - guardLastHintTs.current >= HINT_COOLDOWN) {
+        let tip = "Bring both hands to your face level.";
+        if (leftOK && !rightOK)
+          tip = "Bring your RIGHT hand closer to your face.";
+        if (!leftOK && rightOK)
+          tip = "Bring your LEFT hand closer to your face.";
+        pushLog({ kind: "warn", text: tip });
+        guardLastHintTs.current = now;
+      }
+      guardWasUp.current = false;
+      guardAccumMs.current = 0;
+    }
   }
 
   /* --------------------------------- loop -------------------------------- */
@@ -696,6 +776,7 @@ export default function PoseClient({ technique, stance }: Props) {
       if (technique === "cross") processCross(kps);
       if (technique === "hook") processHook(kps);
       if (technique === "uppercut") processUppercut(kps);
+      if (technique === "guard") processGuard(kps);
     }
 
     rafRef.current = requestAnimationFrame(loop);
@@ -709,18 +790,21 @@ export default function PoseClient({ technique, stance }: Props) {
     setReps(0);
     setLog([]);
 
+    // reset guard timers each start
+    guardAccumMs.current = 0;
+    guardWasUp.current = false;
+    guardLastTs.current = null;
+    guardLastHintTs.current = 0;
+
     try {
       const video = await initCamera();
       landmarkerRef.current = await initLandmarker();
-
       try {
         landmarkerRef.current.detectForVideo(video, performance.now());
       } catch {}
-
       const sid = await startSupabaseSession(technique);
       setSessionId(sid);
       setStartedAtMs(Date.now());
-
       setRunning(true);
       setLoading(false);
       rafRef.current = requestAnimationFrame(loop);
@@ -789,7 +873,9 @@ export default function PoseClient({ technique, stance }: Props) {
           </button>
         )}
 
-        <div className="px-3 py-2 border rounded">Reps: {reps}</div>
+        <div className="px-3 py-2 border rounded">
+          {technique === "guard" ? "Hold (s)" : "Reps"}: {reps}
+        </div>
         {error && <div className="text-red-600 text-sm">{error}</div>}
       </div>
 
@@ -808,7 +894,7 @@ export default function PoseClient({ technique, stance }: Props) {
           <div className="font-semibold mb-2">Technique log</div>
           {log.length === 0 ? (
             <div className="text-sm text-gray-500">
-              Your feedback will appear here while you punch.
+              Your feedback will appear here while you move.
             </div>
           ) : (
             <ul className="space-y-2">
