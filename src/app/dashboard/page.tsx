@@ -128,7 +128,10 @@ export default function DashboardPage() {
       {/* Navbar */}
       <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-3 hover:opacity-90 transition">
+          <a
+            href="/"
+            className="flex items-center gap-3 hover:opacity-90 transition"
+          >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 grid place-items-center text-white text-lg shadow-lg shadow-red-500/30">
               🥊
             </div>
@@ -175,10 +178,10 @@ export default function DashboardPage() {
                   🎯 Start Training
                 </a>
                 <a
-                  href="/history"
+                  href="/progress"
                   className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                 >
-                  📊 View History
+                  📊 View progress
                 </a>
                 <a
                   href="/profile"
@@ -205,7 +208,9 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{iconFor(r.technique)}</span>
+                          <span className="text-2xl">
+                            {iconFor(r.technique)}
+                          </span>
                           <div>
                             <div className="font-semibold text-lg">
                               {pretty(r.technique)}
