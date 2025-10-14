@@ -1,18 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
 /* ----------------------------- Types ----------------------------- */
-type SessionRow = {
-  id: string;
+type RecentViewRow = {
   user_id: string;
+  session_id: string;
   technique: string;
   started_at: string | null;
   finished_at: string | null;
   duration_sec: number | null;
   total_reps: number | null;
+};
+
+type ProgressViewRow = {
+  user_id: string;
+  technique: string;
+  day: string; // yyyy-mm-dd
+  reps: number;
+};
+
+type MostTrainedViewRow = {
+  user_id: string;
+  technique: string;
+  reps_30d: number;
 };
 
 /* --------------------------- Helpers ----------------------------- */
@@ -25,20 +38,74 @@ const iconFor = (tech: string) => {
   if (t === "guard") return "🛡️";
   return "🥊";
 };
-
 const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
+/** Return UTC yyyy-mm-dd for any Date/string */
+function dateKeyUTC(d: Date | string): string {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  return new Date(
+    Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Last n days in UTC keys (today included) */
+function lastNDatesUTC(n: number): string[] {
+  const out: string[] = [];
+  const now = new Date();
+  const todayUTC = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(todayUTC);
+    d.setUTCDate(todayUTC.getUTCDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function computeStreak(progressDays: string[]): number {
+  // streak = consecutive UTC days (including today) with any reps
+  const set = new Set(progressDays);
+  let streak = 0;
+  const now = new Date();
+  const todayUTC = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+  for (let i = 0; i < 120; i++) {
+    const d = new Date(todayUTC);
+    d.setUTCDate(todayUTC.getUTCDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    if (set.has(iso)) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/* --------------------------- Component --------------------------- */
 export default function DashboardPage() {
   const router = useRouter();
+
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [recent, setRecent] = useState<SessionRow[]>([]);
 
-  // --- Fetch user and sessions
+  const [recent, setRecent] = useState<RecentViewRow[]>([]);
+  const [progress30, setProgress30] = useState<ProgressViewRow[]>([]);
+  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
+    null
+  );
+
+  // sessions for KPI + chart
+  const [sessions30, setSessions30] = useState<
+    { id: string; started_at: string }[]
+  >([]);
+
   useEffect(() => {
     let cancelled = false;
+
     const run = async () => {
       try {
         setErr(null);
@@ -52,7 +119,7 @@ export default function DashboardPage() {
           return;
         }
 
-        // Fetch username/avatar from your users table
+        // profile
         const { data: profile } = await supabase
           .from("users")
           .select("username, avatar_url")
@@ -64,18 +131,65 @@ export default function DashboardPage() {
           setAvatarUrl(profile?.avatar_url ?? null);
         }
 
-        // Fetch recent sessions
-        const { data, error } = await supabase
-          .from("training_sessions")
-          .select(
-            "id, user_id, technique, started_at, finished_at, duration_sec, total_reps"
-          )
-          .eq("user_id", user?.id)
-          .order("started_at", { ascending: false })
-          .limit(5);
+        // since 30d
+        const since30 = new Date();
+        since30.setDate(since30.getDate() - 30);
 
-        if (error) throw error;
-        if (!cancelled) setRecent(data ?? []);
+        const [recentRes, progRes, mostRes, sessRes] = await Promise.all([
+          supabase
+            .from("v_user_recent_sessions")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("started_at", { ascending: false })
+            .limit(5),
+
+          supabase
+            .from("v_user_progress_30d")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("day", { ascending: true }),
+
+          supabase
+            .from("v_user_most_trained_30d")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("reps_30d", { ascending: false })
+            .limit(1),
+
+          supabase
+            .from("training_sessions")
+            .select("id, started_at")
+            .eq("user_id", user.id)
+            .gte("started_at", since30.toISOString())
+            .order("started_at", { ascending: true }),
+        ]);
+
+        if (recentRes.error) throw recentRes.error;
+        if (progRes.error) throw progRes.error;
+        if (mostRes.error) throw mostRes.error;
+        if (sessRes.error) throw sessRes.error;
+
+        const rec = (recentRes.data ?? []) as RecentViewRow[];
+        const prog = (progRes.data ?? []).map((r: any) => ({
+          user_id: r.user_id,
+          technique: r.technique,
+          day: typeof r.day === "string" ? r.day : dateKeyUTC(r.day),
+          reps: r.reps ?? 0,
+        })) as ProgressViewRow[];
+        const mt = (
+          mostRes.data && mostRes.data.length > 0 ? mostRes.data[0] : null
+        ) as MostTrainedViewRow | null;
+        const sess = (sessRes.data ?? []).map((s: any) => ({
+          id: s.id as string,
+          started_at: s.started_at as string,
+        }));
+
+        if (!cancelled) {
+          setRecent(rec);
+          setProgress30(prog);
+          setMostTrained(mt);
+          setSessions30(sess);
+        }
       } catch (e: any) {
         if (!cancelled) setErr(e.message || "Error loading dashboard");
       } finally {
@@ -89,6 +203,15 @@ export default function DashboardPage() {
     };
   }, [router]);
 
+  /* --------------- Derived metrics --------------- */
+  const streak = useMemo(
+    () => computeStreak(Array.from(new Set(progress30.map((r) => r.day)))),
+    [progress30]
+  );
+
+  // Sessions KPI + daily chart (UTC bucket)
+  const sessions30Count = sessions30.length;
+  /* ----------------------------- UI ----------------------------- */
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-900">
@@ -105,7 +228,7 @@ export default function DashboardPage() {
           <div className="text-sm text-neutral-600">{err}</div>
           <div className="mt-4">
             <button
-              onClick={() => router.refresh()}
+              onClick={() => location.reload()}
               className="px-4 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 transition"
             >
               Retry
@@ -116,7 +239,6 @@ export default function DashboardPage() {
     );
   }
 
-  /* ------------------------- UI ------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
       {/* soft glow orbs */}
@@ -159,8 +281,29 @@ export default function DashboardPage() {
             Welcome back, {userName} 👊
           </h2>
           <p className="text-neutral-600">
-            Here’s an overview of your recent training sessions.
+            Here’s an overview of your recent training and progress.
           </p>
+        </section>
+
+        {/* KPI Cards (streak moved up + sessions 30d) */}
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
+          <KpiCard title="Current Streak" value={`${streak}`} icon="🔥" />
+          <KpiCard
+            title="Training Sessions (30d)"
+            value={sessions30Count}
+            icon="📅"
+          />
+          <KpiCard
+            title="Most Trained (30d)"
+            value={
+              mostTrained
+                ? `${pretty(mostTrained.technique)} · ${
+                    mostTrained.reps_30d
+                  } reps`
+                : "—"
+            }
+            icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
+          />
         </section>
 
         {/* Main Grid */}
@@ -178,10 +321,10 @@ export default function DashboardPage() {
                   🎯 Start Training
                 </a>
                 <a
-                  href="/progress"
+                  href="/history"
                   className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                 >
-                  📊 View progress
+                  📊 View History
                 </a>
                 <a
                   href="/profile"
@@ -282,6 +425,26 @@ function UserBadge({
       >
         Sign out
       </button>
+    </div>
+  );
+}
+
+function KpiCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: number | string;
+  icon?: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-neutral-200 bg-white/80 backdrop-blur-xl p-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-neutral-600">{title}</h3>
+        <div className="text-xl">{icon ?? "📈"}</div>
+      </div>
+      <div className="mt-3 text-3xl font-extrabold">{value}</div>
     </div>
   );
 }
