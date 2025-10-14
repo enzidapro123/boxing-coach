@@ -1,44 +1,34 @@
-// app/login/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
-function isValidEmail(e: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-}
+const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
 
-  // Prefer ?redirectedFrom=... (set by middleware), else ?next=..., else /dashboard
-  const redirectTo = useMemo(() => {
-    const redirectedFrom = params.get("redirectedFrom");
-    const next = params.get("next");
-    return redirectedFrom || next || "/dashboard";
-  }, [params]);
+  const redirectTo = useMemo(
+    () => params.get("redirectedFrom") || params.get("next") || "/dashboard",
+    [params]
+  );
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPwd, setShowPwd] = useState(false);
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [isResending, setIsResending] = useState(false);
-
+  const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [canResend, setCanResend] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
 
-  // If already logged in, send them away fast
   useEffect(() => {
     (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
         router.replace(redirectTo);
         router.refresh();
       }
@@ -52,51 +42,31 @@ export default function LoginPage() {
     setCanResend(false);
 
     const cleanEmail = email.trim().toLowerCase();
-    if (!isValidEmail(cleanEmail)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-    if (!password) {
-      setError("Password is required.");
-      return;
-    }
+    if (!isEmail(cleanEmail)) return setError("Please enter a valid email.");
+    if (!pw) return setError("Password is required.");
 
-    setIsLoading(true);
+    setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
-      password,
+      password: pw,
     });
-    setIsLoading(false);
+    setLoading(false);
 
     if (error) {
       const msg = error.message.toLowerCase();
-
       if (msg.includes("email not confirmed")) {
         setError("Please verify your email before logging in.");
         setCanResend(true);
         return;
       }
-      if (
-        msg.includes("invalid login") ||
-        msg.includes("invalid credentials") ||
-        msg.includes("invalid email or password") ||
-        msg.includes("invalid email, address or password")
-      ) {
-        setError("Incorrect email or password.");
-        return;
-      }
-      if (msg.includes("too many") || msg.includes("rate limit")) {
-        setError("Too many attempts. Please wait a minute and try again.");
-        return;
-      }
-      setError(error.message);
-      return;
+      if (msg.includes("invalid") || msg.includes("credentials"))
+        return setError("Incorrect email or password.");
+      if (msg.includes("too many") || msg.includes("rate limit"))
+        return setError("Too many attempts. Please wait a bit.");
+      return setError(error.message);
     }
 
-    // ✅ go back to where user came from (middleware) or to ?next= or /dashboard
-    const sp = new URLSearchParams(window.location.search);
-    const back = sp.get("redirectedFrom");
-    router.replace(back || redirectTo);
+    router.replace(redirectTo);
     router.refresh();
   };
 
@@ -105,12 +75,9 @@ export default function LoginPage() {
     setNotice(null);
 
     const cleanEmail = email.trim().toLowerCase();
-    if (!isValidEmail(cleanEmail)) {
-      setError("Enter the email you used to register first.");
-      return;
-    }
+    if (!isEmail(cleanEmail)) return setError("Enter your registered email first.");
 
-    setIsResending(true);
+    setResending(true);
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: cleanEmail,
@@ -121,171 +88,137 @@ export default function LoginPage() {
             : undefined,
       },
     });
-    setIsResending(false);
+    setResending(false);
 
-    if (error) {
-      const lower = error.message.toLowerCase();
-      if (
-        lower.includes("over email rate limit") ||
-        lower.includes("too many")
-      ) {
-        setError("Too many attempts. Please wait a minute and try again.");
-      } else {
-        setError(error.message);
-      }
-      return;
-    }
+    if (error)
+      return setError(
+        error.message.includes("too many")
+          ? "Too many attempts. Please wait a minute."
+          : error.message
+      );
 
-    setNotice("Confirmation email sent. Please check your inbox.");
+    setNotice("Confirmation email sent. Check your inbox.");
+  };
+
+  const inputBase =
+    "w-full p-3 rounded-xl bg-white border placeholder-neutral-400 focus:outline-none focus:ring-2 transition text-neutral-900";
+  const state = {
+    ok: "border-emerald-400 focus:ring-emerald-400",
+    bad: "border-red-400 focus:ring-red-400",
+    neu: "border-neutral-200 focus:ring-orange-400",
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
-      {/* Top Nav */}
-      <nav className="fixed top-0 w-full bg-white/5 backdrop-blur-lg border-b border-white/10 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
-                🥊
-              </div>
-              <span className="text-xl font-bold">BlazePose Coach</span>
-            </Link>
-            <div className="hidden md:flex items-center gap-6">
-              <Link
-                href={`/register?next=${encodeURIComponent(redirectTo)}`}
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Register
-              </Link>
-              <Link
-                href={`/login?next=${encodeURIComponent(redirectTo)}`}
-                className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-5 py-2.5 rounded-lg font-semibold transition-all"
-              >
-                Login
-              </Link>
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+      {/* Floating orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
+        <div className="absolute top-1/3 -left-40 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+      </div>
+
+      {/* Navbar */}
+      <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <Link href="/" className="flex items-center hover:opacity-80 transition">
+            <img src="/logo.png" alt="Logo" className="h-11 w-auto" />
+          </Link>
+          <Link
+            href="/register"
+            className="rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-md hover:scale-105 transition"
+          >
+            Register
+          </Link>
         </div>
       </nav>
 
-      {/* Page Content */}
-      <main className="pt-28 pb-16 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="mx-auto w-full max-w-md">
-            {/* Card */}
-            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
-              <div className="text-center mb-6">
-                <h1 className="text-3xl font-bold">Welcome back</h1>
-                <p className="text-gray-300 mt-2">
-                  Enter your credentials to access your training dashboard.
-                </p>
+      {/* Login card */}
+      <main className="px-6 pt-32 pb-20 flex justify-center">
+        <div className="max-w-md w-full relative">
+          <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
+          <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-xl shadow-red-500/10">
+            <h2 className="text-2xl font-bold mb-2 text-center">Welcome back</h2>
+            <p className="text-sm text-neutral-600 mb-6 text-center">
+              Log in to continue your boxing training sessions.
+            </p>
+
+            {notice && (
+              <div className="mb-4 text-sm rounded-lg p-3 border text-emerald-700 bg-emerald-50 border-emerald-200">
+                {notice}
+              </div>
+            )}
+            {error && (
+              <div className="mb-4 text-sm rounded-lg p-3 border text-red-700 bg-red-50 border-red-200">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-4" noValidate>
+              <div>
+                <label className="block text-sm mb-1 text-neutral-700">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className={`${inputBase} ${
+                    email ? (isEmail(email) ? state.ok : state.bad) : state.neu
+                  }`}
+                />
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="email"
-                    className="block text-sm mb-1 text-gray-300"
+              <div>
+                <div className="flex justify-between items-center">
+                  <label className="text-sm text-neutral-700">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPw(!showPw)}
+                    className="text-xs text-neutral-600 hover:text-neutral-900"
                   >
-                    Email
-                  </label>
-                  <input
-                    id="email"
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    placeholder="you@example.com"
-                    className="w-full p-3 rounded-lg bg-white/10 border border-white/20 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-pink-600"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
+                    {showPw ? "Hide" : "Show"}
+                  </button>
                 </div>
+                <input
+                  type={showPw ? "text" : "password"}
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  placeholder="••••••••"
+                  className={`${inputBase} ${pw ? state.ok : state.neu}`}
+                />
+              </div>
 
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="password"
-                      className="block text-sm mb-1 text-gray-300"
-                    >
-                      Password
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowPwd((s) => !s)}
-                      className="text-xs text-gray-300 hover:text-white"
-                    >
-                      {showPwd ? "Hide" : "Show"}
-                    </button>
-                  </div>
-                  <input
-                    id="password"
-                    type={showPwd ? "text" : "password"}
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    className="w-full p-3 rounded-lg bg-white/10 border border-white/20 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-pink-600"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-
-                {notice && (
-                  <p className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
-                    {notice}
-                  </p>
-                )}
-
-                {error && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-                      {error}
-                    </p>
-                    {canResend && (
-                      <button
-                        type="button"
-                        onClick={resendVerification}
-                        disabled={isResending}
-                        className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm font-semibold disabled:opacity-60"
-                      >
-                        {isResending
-                          ? "Resending…"
-                          : "Resend verification email"}
-                      </button>
-                    )}
-                  </div>
-                )}
-
+              {canResend && (
                 <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 rounded-lg font-semibold transition-all transform hover:scale-[1.01] disabled:opacity-60 disabled:cursor-not-allowed"
+                  type="button"
+                  onClick={resendVerification}
+                  disabled={resending}
+                  className="w-full text-sm font-semibold text-red-600 hover:text-red-700 underline disabled:opacity-60"
                 >
-                  {isLoading ? "Signing in..." : "Login"}
+                  {resending ? "Resending..." : "Resend verification email"}
                 </button>
-              </form>
-
-              <div className="mt-6 text-sm text-center text-gray-300">
-                <Link href="/forgot-password" className="hover:text-white">
+              )}
+              <div className="mt-3 text-xs text-right text-neutral-500">
+                <Link href="/forgot-password" className="underline hover:text-neutral-900">
                   Forgot password?
                 </Link>
               </div>
 
-              <div className="mt-4 text-sm text-center text-gray-300">
-                Don&apos;t have an account?{" "}
-                <Link
-                  href={`/register?next=${encodeURIComponent(redirectTo)}`}
-                  className="font-semibold text-white hover:underline"
-                >
-                  Create one
-                </Link>
-              </div>
-            </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-3 px-6 py-3 rounded-full font-semibold bg-gradient-to-r from-red-600 to-orange-500 text-white shadow-md hover:scale-105 transition disabled:opacity-60"
+              >
+                {loading ? "Signing in..." : "Login"}
+              </button>
 
-            <p className="text-center text-xs text-gray-400 mt-6">
-              © 2025 BlazePose Coach. Train smarter.
-            </p>
+
+
+              <p className="mt-3 text-xs text-center text-neutral-500">
+                Don’t have an account?{" "}
+                <Link href="/register" className="underline hover:text-neutral-700">
+                  Sign up
+                </Link>
+              </p>
+            </form>
           </div>
         </div>
       </main>
