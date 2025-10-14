@@ -28,16 +28,6 @@ const iconFor = (tech: string) => {
 
 const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-const statGradientText = (key: "red" | "blue" | "green" | "purple") => {
-  if (key === "red")
-    return "bg-gradient-to-r from-white to-red-400 bg-clip-text text-transparent";
-  if (key === "blue")
-    return "bg-gradient-to-r from-white to-blue-400 bg-clip-text text-transparent";
-  if (key === "green")
-    return "bg-gradient-to-r from-white to-green-400 bg-clip-text text-transparent";
-  return "bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent";
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
@@ -74,13 +64,13 @@ export default function DashboardPage() {
           setAvatarUrl(profile?.avatar_url ?? null);
         }
 
-        // Fetch recent sessions (SAME LOGIC AS /history)
+        // Fetch recent sessions
         const { data, error } = await supabase
           .from("training_sessions")
           .select(
             "id, user_id, technique, started_at, finished_at, duration_sec, total_reps"
           )
-          .eq("user_id", user.id)
+          .eq("user_id", user?.id)
           .order("started_at", { ascending: false })
           .limit(5);
 
@@ -101,7 +91,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
+      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-900">
         Loading dashboard…
       </div>
     );
@@ -109,14 +99,14 @@ export default function DashboardPage() {
 
   if (err) {
     return (
-      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
-        <div className="bg-white/5 border border-white/10 p-6 rounded-xl">
+      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-900">
+        <div className="bg-white/80 backdrop-blur-xl border border-red-100 p-6 rounded-2xl shadow-xl">
           <div className="font-semibold mb-2">Error</div>
-          <div className="text-sm text-gray-300">{err}</div>
+          <div className="text-sm text-neutral-600">{err}</div>
           <div className="mt-4">
             <button
               onClick={() => router.refresh()}
-              className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg"
+              className="px-4 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 transition"
             >
               Retry
             </button>
@@ -128,16 +118,22 @@ export default function DashboardPage() {
 
   /* ------------------------- UI ------------------------- */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+      {/* soft glow orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/25 to-orange-400/25 blur-3xl" />
+        <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+      </div>
+
       {/* Navbar */}
-      <header className="bg-white/5 backdrop-blur-lg border-b border-white/10">
+      <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
+          <a href="/" className="flex items-center gap-3 hover:opacity-90 transition">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 grid place-items-center text-white text-lg shadow-lg shadow-red-500/30">
               🥊
             </div>
-            <h1 className="text-xl font-bold text-white">BlazePose Coach</h1>
-          </div>
+            <h1 className="text-xl font-bold">BlazePose Coach</h1>
+          </a>
 
           <UserBadge
             userName={userName}
@@ -151,89 +147,98 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-10">
+        {/* Welcome */}
         <section className="mb-10">
-          <h2 className="text-4xl font-bold text-white mb-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-2 text-xs font-semibold text-red-700 mb-4">
+            Dashboard
+          </div>
+          <h2 className="text-4xl font-bold mb-2">
             Welcome back, {userName} 👊
           </h2>
-          <p className="text-gray-400 text-lg">
-            Here's an overview of your recent training sessions.
+          <p className="text-neutral-600">
+            Here’s an overview of your recent training sessions.
           </p>
         </section>
 
-        {/* Quick Actions */}
+        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
-            <h3 className="text-xl font-semibold text-white mb-6">
-              Quick Actions
-            </h3>
-            <div className="flex flex-col gap-4">
-              <a
-                href="/training"
-                className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all transform hover:scale-105 shadow-lg"
-              >
-                🎯 Start Training
-              </a>
-              <a
-                href="/history"
-                className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all"
-              >
-                📊 View History
-              </a>
-              <a
-                href="/profile"
-                className="bg-white/10 hover:bg-white/20 border border-white/20 text-white px-6 py-4 rounded-xl text-center font-semibold transition-all"
-              >
-                ⚙️ Profile Settings
-              </a>
+          {/* Quick Actions */}
+          <div className="relative">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-red-300/30 to-orange-300/30 blur-3xl" />
+            <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-2xl shadow-red-500/10">
+              <h3 className="text-xl font-semibold mb-6">Quick actions</h3>
+              <div className="flex flex-col gap-4">
+                <a
+                  href="/training"
+                  className="rounded-xl text-center font-semibold px-6 py-4 bg-gradient-to-r from-red-600 to-orange-500 text-white shadow-lg shadow-red-500/30 hover:scale-[1.02] transition"
+                >
+                  🎯 Start Training
+                </a>
+                <a
+                  href="/history"
+                  className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
+                >
+                  📊 View History
+                </a>
+                <a
+                  href="/profile"
+                  className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
+                >
+                  ⚙️ Profile Settings
+                </a>
+              </div>
             </div>
           </div>
 
           {/* Recent Activity */}
-          <div className="lg:col-span-2 bg-white/5 border border-white/10 rounded-2xl p-8">
-            <h3 className="text-xl font-semibold text-white mb-6">
-              Recent Activity
-            </h3>
+          <div className="lg:col-span-2 relative">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-orange-300/25 to-red-300/25 blur-3xl" />
+            <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-2xl shadow-red-500/10">
+              <h3 className="text-xl font-semibold mb-6">Recent activity</h3>
 
-            {recent.length > 0 ? (
-              <div className="space-y-4">
-                {recent.map((r) => (
-                  <div
-                    key={r.id}
-                    className="bg-white/5 border border-white/10 rounded-xl p-5 hover:bg-white/10 transition-all"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{iconFor(r.technique)}</span>
-                        <div>
-                          <div className="font-semibold text-white text-lg">
-                            {pretty(r.technique)}
+              {recent.length > 0 ? (
+                <div className="space-y-4">
+                  {recent.map((r) => (
+                    <div
+                      key={r.id}
+                      className="rounded-2xl border border-neutral-200 bg-white/70 p-5 hover:bg-white transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">{iconFor(r.technique)}</span>
+                          <div>
+                            <div className="font-semibold text-lg">
+                              {pretty(r.technique)}
+                            </div>
+                            <p className="text-sm text-neutral-600">
+                              {r.started_at
+                                ? new Date(r.started_at).toLocaleString()
+                                : "—"}
+                            </p>
                           </div>
-                          <p className="text-sm text-gray-400">
-                            {r.started_at
-                              ? new Date(r.started_at).toLocaleString()
-                              : "—"}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-3xl font-bold bg-gradient-to-r from-neutral-900 to-blue-500 bg-clip-text text-transparent">
+                            {r.total_reps ?? 0}
+                          </div>
+                          <p className="text-xs text-neutral-600 mt-1">
+                            Total reps
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-3xl font-bold text-blue-400">
-                          {r.total_reps ?? 0}
-                        </div>
-                        <p className="text-xs text-gray-400 mt-1">Total Reps</p>
-                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <div className="text-6xl mb-4">🥊</div>
-                <p className="text-gray-400 text-lg">No recent sessions</p>
-                <p className="text-gray-500 text-sm mt-2">
-                  Start your first training session to see your progress here.
-                </p>
-              </div>
-            )}
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">🥊</div>
+                  <p className="text-neutral-700 text-lg">No recent sessions</p>
+                  <p className="text-neutral-500 text-sm mt-2">
+                    Start your first training session to see your progress here.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
@@ -253,9 +258,10 @@ function UserBadge({
 }) {
   return (
     <div className="flex items-center gap-4">
-      <span className="text-sm text-gray-300">{userName}</span>
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-white/20">
+      <span className="text-sm text-neutral-600">{userName}</span>
+      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
         {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={avatarUrl}
             alt="Profile"
@@ -267,7 +273,7 @@ function UserBadge({
       </div>
       <button
         onClick={onSignOut}
-        className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-sm hover:bg-white/20"
+        className="px-3 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm transition"
       >
         Sign out
       </button>
