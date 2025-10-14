@@ -28,34 +28,36 @@ export default function TrainingPage() {
   }, []);
 
   const techniques = [
-    { name: "Jab", color: "from-blue-500 to-indigo-600", emoji: "👊" },
-    { name: "Cross", color: "from-green-500 to-emerald-600", emoji: "⚡" },
-    { name: "Hook", color: "from-purple-500 to-pink-600", emoji: "🌀" },
-    { name: "Uppercut", color: "from-orange-500 to-red-600", emoji: "🔥" },
-    { name: "Guard", color: "from-gray-600 to-slate-800", emoji: "🛡️" },
+    { name: "Jab", aura: "from-red-600 to-orange-500",},
+    { name: "Cross", aura: "from-orange-600 to-red-500",},
+    { name: "Hook", aura: "from-pink-600 to-rose-500",},
+    { name: "Uppercut", aura: "from-red-500 to-orange-500", },
+    { name: "Guard", aura: "from-amber-600 to-red-500",},
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+      {/* Floating gradient orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-[28rem] w-[28rem] rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
+        <div className="absolute top-1/3 -left-52 h-[34rem] w-[34rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+        <div className="absolute bottom-10 right-1/4 h-72 w-72 rounded-full bg-gradient-to-br from-red-500/25 to-orange-500/25 blur-3xl" />
+      </div>
+
       {/* Top Navbar */}
-      <header className="fixed top-0 w-full bg-white/5 backdrop-blur-lg border-b border-white/10 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
-              🥊
-            </div>
-            <span className="text-xl font-bold">BlazePose Coach</span>
+      <header className="sticky top-0 z-50 border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+            <span className="sr-only">BlazePose Coach</span>
           </a>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-300">{userName}</span>
-            <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-red-500 to-pink-600 flex items-center justify-center text-lg font-bold">
+            <span className="text-sm text-neutral-600">{userName}</span>
+            <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-red-200/60 bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold">
               {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
               )}
@@ -65,47 +67,65 @@ export default function TrainingPage() {
       </header>
 
       {/* Page Content */}
-      <main className="pt-28 pb-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Welcome Section */}
-          <section className="text-center mb-16">
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">
-              Start a New Training Session 👊
+      <main className="px-6 pt-20 pb-24">
+        <div className="mx-auto max-w-7xl">
+          {/* Heading */}
+          <section className="text-center mb-14">
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight">
+              Start a new{" "}
+              <span className="bg-gradient-to-r from-red-600 via-orange-500 to-red-600 bg-clip-text text-transparent">
+                training session
+              </span>
             </h1>
-            <p className="text-lg text-gray-300">
-              Choose a technique below to begin personalized AI-powered training.
+            <p className="mt-4 text-lg text-neutral-600">
+              Choose a technique below to begin personalized AI-powered coaching.
             </p>
           </section>
 
           {/* Techniques Grid */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {techniques.map((t) => (
               <a
                 key={t.name}
                 href={`/session/${t.name.toLowerCase()}`}
-                className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${t.color} p-8 shadow-lg hover:scale-[1.03] transition-transform`}
+                className="group relative rounded-3xl border border-red-100/70 bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
               >
-                <div className="absolute top-4 right-4 text-4xl opacity-20 group-hover:opacity-40 transition">
-                  {t.emoji}
-                </div>
-                <h3 className="text-2xl font-bold mb-2">{t.name}</h3>
-                <p className="text-gray-200 text-sm">
-                  Begin your {t.name} training session
-                </p>
-                <div className="mt-6 inline-block bg-white/20 px-4 py-2 rounded-full text-sm font-semibold group-hover:bg-white/30 transition">
-                  Start Now →
+                {/* Hover aura */}
+                <div
+                  className={`pointer-events-none absolute -inset-1 rounded-3xl bg-gradient-to-br ${t.aura} opacity-0 group-hover:opacity-20 blur transition`}
+                />
+                <div className="relative">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-2xl font-bold">{t.name}</h3>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-sm text-neutral-600">
+                    Begin your {t.name.toLowerCase()} training session.
+                  </p>
+                  <div className="mt-6 inline-flex items-center gap-2 rounded-full border-2 border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition group-hover:border-red-200 group-hover:bg-red-50">
+                    Start now
+                    <svg
+                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </div>
                 </div>
               </a>
             ))}
           </section>
 
           {/* CTA */}
-          <div className="text-center mt-20">
+          <div className="text-center mt-16">
             <a
               href="/dashboard"
-              className="inline-block bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-10 py-4 rounded-xl font-bold text-lg transition-all transform hover:scale-105 shadow-2xl"
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-white font-semibold shadow-md hover:scale-105 transition"
             >
-              ← Back to Dashboard
+              ← Back to dashboard
             </a>
           </div>
         </div>
