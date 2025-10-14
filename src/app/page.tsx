@@ -1,327 +1,364 @@
 "use client";
-
 import { useState } from "react";
 
 export default function LandingPage() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentMsg, setSentMsg] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const NavLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
+    <a href={href} className="text-neutral-600 hover:text-neutral-900 transition font-medium">
+      {children}
+    </a>
+  );
+
+  async function onContactSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSentMsg(null);
+    setErrMsg(null);
+    setSending(true);
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const payload = {
+      name: String(formData.get("name") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
+      message: String(formData.get("message") || "").trim(),
+    };
+
+    // Basic client checks
+    if (!payload.name || !payload.email || !payload.message) {
+      setErrMsg("Please fill out all fields.");
+      setSending(false);
+      return;
+    }
+
+    try {
+      // Try your (optional) API route if you add one later
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        // Fallback to mailto
+        const params = new URLSearchParams({
+          subject: "Contact: BlazePose Coach",
+          body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
+        });
+        window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
+        setSentMsg("Opening your email client… If nothing opens, email support@yourapp.com.");
+      } else {
+        setSentMsg("Thanks! Your message has been sent.");
+        form.reset();
+      }
+    } catch {
+      // Fallback to mailto on network error
+      const params = new URLSearchParams({
+        subject: "Contact: BlazePose Coach",
+        body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
+      });
+      window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
+      setSentMsg("Opening your email client… If nothing opens, email support@yourapp.com.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
-      {/* Navigation */}
-      <nav className="fixed top-0 w-full bg-white/5 backdrop-blur-lg border-b border-white/10 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
-                🥊
-              </div>
-              <span className="text-xl font-bold">BlazePose Coach</span>
-            </div>
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+      {/* Floating background orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
+        <div className="absolute top-1/3 -left-40 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+      </div>
 
-            {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-gray-300 hover:text-white transition-colors">
-                Features
-              </a>
-              <a href="#how-it-works" className="text-gray-300 hover:text-white transition-colors">
-                How It Works
-              </a>
-              <a
-                href="/login"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Login
-              </a>
-              <a
-                href="/register"
-                className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-6 py-2.5 rounded-lg font-semibold transition-all transform hover:scale-105"
-              >
-                Get Started
-              </a>
-            </div>
+      {/* NAVBAR */}
+      <nav className="fixed top-0 z-50 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/50">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+          </a>
 
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="md:hidden text-white"
+          <div className="hidden md:flex items-center gap-8">
+            <NavLink href="#features">Features</NavLink>
+            <NavLink href="#how-it-works">How it works</NavLink>
+            <NavLink href="#contact">Contact</NavLink>
+            <NavLink href="/login">Login</NavLink>
+            <a
+              href="/register"
+              className="rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-xl"
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                {isMenuOpen ? (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                ) : (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 6h16M4 12h16M4 18h16"
-                  />
-                )}
-              </svg>
-            </button>
+              Get started
+            </a>
           </div>
 
-          {/* Mobile Menu */}
-          {isMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 space-y-3">
-              <a href="#features" className="block text-gray-300 hover:text-white">
-                Features
-              </a>
-              <a href="#how-it-works" className="block text-gray-300 hover:text-white">
-                How It Works
-              </a>
-              <a href="#pricing" className="block text-gray-300 hover:text-white">
-                Pricing
-              </a>
-              <a href="/login" className="block text-gray-300 hover:text-white">
-                Login
-              </a>
-              <a
-                href="/register"
-                className="block bg-gradient-to-r from-red-500 to-pink-600 px-6 py-2.5 rounded-lg font-semibold text-center"
-              >
-                Get Started
-              </a>
-            </div>
-          )}
+          {/* Mobile toggle */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="md:hidden rounded-lg border border-neutral-200 bg-white p-2 hover:bg-neutral-50 transition"
+            aria-label="Toggle menu"
+          >
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {menuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
+
+        {menuOpen && (
+          <div className="md:hidden border-t border-neutral-200/50 bg-white/95 backdrop-blur-xl px-6 pb-6">
+            {[
+              ["#features", "Features"],
+              ["#how-it-works", "How it works"],
+              ["#contact", "Contact"],
+              ["/login", "Login"],
+            ].map(([href, label]) => (
+              <a
+                key={href}
+                href={href}
+                className="block px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
+              >
+                {label}
+              </a>
+            ))}
+            <a
+              href="/register"
+              className="mt-3 block text-center rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg"
+            >
+              Get started
+            </a>
+          </div>
+        )}
       </nav>
 
-      {/* Hero Section */}
-      <section className="pt-32 pb-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-4xl mx-auto">
-            <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
-              Master Your Boxing
-              <span className="block bg-gradient-to-r from-red-400 via-pink-500 to-purple-500 bg-clip-text text-transparent">
-                With AI Precision
+      {/* HERO */}
+      <section className="px-6 pt-32 pb-20 md:pt-40">
+        <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-2">
+          {/* Text side */}
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-2 text-xs font-semibold text-red-700 mb-6">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+                <span className="relative rounded-full h-2 w-2 bg-red-600" />
               </span>
+              Live AI feedback
+            </div>
+
+            <h1 className="text-5xl md:text-7xl font-bold leading-tight tracking-tight">
+              <span className="bg-gradient-to-r from-red-600 via-orange-500 to-red-600 bg-clip-text text-transparent">
+                AI-powered
+              </span>
+              <br />boxing coaching <br />
+              <span className="text-neutral-500">in your browser.</span>
             </h1>
-            <p className="text-xl md:text-2xl text-gray-300 mb-10 leading-relaxed">
-              Real-time pose estimation and personalized feedback to perfect every jab, hook, and uppercut. Train like a pro from anywhere.
+
+            <p className="mt-6 text-lg text-neutral-600 max-w-xl leading-relaxed">
+              Real-time BlazePose feedback to perfect your jab, cross, hook, and guard—no installs, just your camera.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+
+            <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <a
                 href="/register"
-                className="bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-8 py-4 rounded-xl font-bold text-lg transition-all transform hover:scale-105 shadow-2xl"
+                className="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-base font-semibold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105"
               >
-                Start Training Free
+                Start free
+                <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
               </a>
               <a
                 href="#how-it-works"
-                className="bg-white/10 hover:bg-white/20 border border-white/20 px-8 py-4 rounded-xl font-bold text-lg transition-all"
+                className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-neutral-200 bg-white px-8 py-4 text-base font-semibold text-neutral-900 hover:border-red-200 hover:bg-red-50 transition"
               >
-                Watch Demo
+                See how it works
               </a>
             </div>
-        </div>
-                </div>
-
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-20 px-6 bg-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold mb-4">
-              Everything You Need to Excel
-            </h2>
-            <p className="text-xl text-gray-400">
-              Powered by BlazePose AI technology for precision training
-            </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                🎯
+          {/* Visual side */}
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
+            <div className="relative rounded-3xl border border-red-100/80 bg-white/80 p-4 backdrop-blur-xl shadow-2xl shadow-red-500/20">
+              <div className="aspect-video rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 via-orange-50 to-red-50 grid place-items-center">
+                {/* demo video placeholder */}
+                <div className="text-neutral-700 text-sm">Demo coming soon</div>
               </div>
-              <h3 className="text-2xl font-bold mb-3">Real-Time Feedback</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Get instant analysis of your form and technique with our AI-powered pose detection system.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                📊
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Progress Tracking</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Monitor your improvement over time with detailed analytics and performance metrics.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                🥊
-              </div>
-              <h3 className="text-2xl font-bold mb-3">12+ Techniques</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Practice jabs, hooks, uppercuts, kicks, and advanced combinations with guided training.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                🎥
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Session Recording</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Review your training sessions with video playback and detailed form breakdown.
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                ⚡
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Personalized Plans</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Get custom training routines based on your skill level and goals.
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all">
-              <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-3xl mb-6">
-                🏆
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Achievement System</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Unlock badges and milestones as you progress through your boxing journey.
-              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section id="how-it-works" className="py-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold mb-4">
-              How It Works
-            </h2>
-            <p className="text-xl text-gray-400">
-              Get started in three simple steps
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-12">
-            <div className="text-center">
-              <div className="w-20 h-20 bg-gradient-to-br from-red-500 to-pink-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6">
-                1️⃣
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Choose Your Technique</h3>
-              <p className="text-gray-400">
-                Select from 12+ boxing techniques including jabs, hooks, kicks, and combos.
-              </p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6">
-                2️⃣
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Start Training</h3>
-              <p className="text-gray-400">
-                Our AI analyzes your movements in real-time using your camera.
-              </p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-6">
-                3️⃣
-              </div>
-              <h3 className="text-2xl font-bold mb-3">Track Progress</h3>
-              <p className="text-gray-400">
-                Review your performance metrics and watch yourself improve over time.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-6 bg-gradient-to-r from-red-500/20 to-pink-600/20">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl md:text-5xl font-bold mb-6">
-            Ready to Transform Your Training?
+      {/* FEATURES */}
+      <section id="features" className="px-6 py-24 border-t border-neutral-200/50">
+        <div className="max-w-7xl mx-auto text-center mb-16">
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
+            What you <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">get</span>
           </h2>
-          <p className="text-xl text-gray-300 mb-10">
-            Join thousands of boxers improving their skills with AI-powered coaching.
-          </p>
-          <a
-            href="/register"
-            className="inline-block bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-600 hover:to-pink-700 px-10 py-5 rounded-xl font-bold text-xl transition-all transform hover:scale-105 shadow-2xl"
-          >
-            Start Your Free Trial
-          </a>
+          <p className="mt-4 text-lg text-neutral-600">Core tools that help you improve.</p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-7xl mx-auto">
+          {[
+            ["🎯", "Real-time feedback", "Instant cues on form, angle, and timing."],
+            ["📊", "Progress tracking", "See accuracy, sessions, and training time."],
+            ["🥊", "Technique library", "Jabs, crosses, hooks, and combos."],
+            ["🎥", "Session review", "Rewatch your movements for correction."],
+            ["⚡", "AI analysis", "BlazePose tracks keypoints in real time."],
+            ["🏆", "Skill progression", "Level up as your form improves."],
+          ].map(([icon, title, desc]) => (
+            <div
+              key={title}
+              className="group relative rounded-2xl border border-red-100 bg-white/80 backdrop-blur p-8 shadow-lg hover:-translate-y-2 hover:shadow-2xl hover:shadow-red-500/20 transition"
+            >
+              <div className="inline-flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-red-600 to-orange-500 text-2xl shadow-lg shadow-red-500/30 mb-4 group-hover:scale-110 transition">
+                {icon}
+              </div>
+              <h3 className="text-xl font-semibold">{title}</h3>
+              <p className="mt-2 text-sm text-neutral-600">{desc}</p>
+            </div>
+          ))}
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 px-6 border-t border-white/10">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8">
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
-                  🥊
+      {/* HOW IT WORKS */}
+      <section id="how-it-works" className="px-6 py-24 bg-gradient-to-b from-neutral-50 to-white">
+        <div className="max-w-7xl mx-auto text-center mb-16">
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
+            How it <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">works</span>
+          </h2>
+          <p className="mt-4 text-lg text-neutral-600">Three steps. That’s it.</p>
+        </div>
+
+        <div className="grid gap-8 md:grid-cols-3 max-w-7xl mx-auto">
+          {[
+            { step: "01", title: "Pick a technique", desc: "Choose jab, cross, hook, uppercut, or a combo.", color: "from-red-600 to-red-500" },
+            { step: "02", title: "Train live", desc: "Turn on your webcam—get corrections in real time.", color: "from-orange-600 to-orange-500" },
+            { step: "03", title: "Improve fast", desc: "Track results and refine your form each session.", color: "from-red-500 to-orange-500" },
+          ].map((s) => (
+            <div key={s.step} className="relative group">
+              <div className={`absolute -inset-1 bg-gradient-to-r ${s.color} opacity-20 group-hover:opacity-40 rounded-3xl blur transition`} />
+              <div className="relative rounded-2xl border border-red-100/80 bg-white/80 backdrop-blur p-10 shadow-xl shadow-red-500/10 group-hover:shadow-2xl group-hover:shadow-red-500/20 transition-all">
+                <div className={`mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color} text-white text-xl font-bold shadow-lg shadow-red-500/40`}>
+                  {s.step}
                 </div>
-                <span className="text-xl font-bold">BlazePose</span>
+                <h3 className="text-2xl font-bold">{s.title}</h3>
+                <p className="mt-3 text-neutral-600 leading-relaxed">{s.desc}</p>
               </div>
-              <p className="text-gray-400 text-sm">
-                AI-powered boxing coach for everyone.
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CONTACT */}
+      <section id="contact" className="px-6 py-24 border-y border-neutral-200/60">
+        <div className="mx-auto max-w-7xl grid gap-10 lg:grid-cols-2 items-center">
+          <div>
+            <h2 className="text-4xl font-bold md:text-5xl tracking-tight">
+              Contact <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">us</span>
+            </h2>
+            <p className="mt-4 text-lg text-neutral-600">
+              Questions or feedback? We’d love to hear from you.
+            </p>
+
+            <div className="mt-6 space-y-2 text-neutral-700">
+              <p>📧 <a className="text-neutral-900" href="mailto:rjbdelpilar@gmail.com">rjbdelpilar@gmail.com</a></p>
+                            <p>📧 <a className="text-neutral-900" href="mailto:rjbdelpilar@gmail.com">rjbdelpilar@gmail.com</a></p>
+
+            </div>
+          </div>
+
+          <form onSubmit={onContactSubmit} className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-6 sm:p-8 shadow-2xl shadow-red-500/20 space-y-4">
+            <div>
+              <label htmlFor="name" className="block text-sm text-neutral-700 mb-1">Name</label>
+              <input
+                id="name"
+                name="name"
+                className="w-full p-3 rounded-xl bg-white border border-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="Your name"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="email" className="block text-sm text-neutral-700 mb-1">Email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                className="w-full p-3 rounded-xl bg-white border border-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="message" className="block text-sm text-neutral-700 mb-1">Message</label>
+              <textarea
+                id="message"
+                name="message"
+                rows={4}
+                className="w-full p-3 rounded-xl bg-white border border-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="How can we help?"
+                required
+              />
+            </div>
+
+            {sentMsg && (
+              <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                {sentMsg}
               </p>
-            </div>
+            )}
+            {errMsg && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                {errMsg}
+              </p>
+            )}
 
-            <div>
-              <h4 className="font-bold mb-4">Product</h4>
-              <ul className="space-y-2 text-gray-400 text-sm">
-                <li><a href="#features" className="hover:text-white">Features</a></li>
-                <li><a href="#pricing" className="hover:text-white">Pricing</a></li>
-                <li><a href="#" className="hover:text-white">FAQ</a></li>
-              </ul>
-            </div>
+            <button
+              type="submit"
+              disabled={sending}
+              className="w-full mt-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-3 text-white font-semibold shadow-lg shadow-red-500/30 hover:scale-105 hover:shadow-xl transition disabled:opacity-60"
+            >
+              {sending ? "Sending…" : "Send message"}
+            </button>
+          </form>
+        </div>
+      </section>
 
-            <div>
-              <h4 className="font-bold mb-4">Company</h4>
-              <ul className="space-y-2 text-gray-400 text-sm">
-                <li><a href="#" className="hover:text-white">About</a></li>
-                <li><a href="#" className="hover:text-white">Blog</a></li>
-                <li><a href="#" className="hover:text-white">Careers</a></li>
-              </ul>
-            </div>
+      {/* CTA */}
+      <section className="px-6 py-24 bg-gradient-to-b from-white to-neutral-50 border-y border-red-100/50 text-center">
+        <h2 className="text-4xl md:text-5xl font-bold">
+          Ready to{" "}
+          <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">
+            start?
+          </span>
+        </h2>
+        <p className="mt-4 text-xl text-neutral-600">Train with AI feedback—right in your browser.</p>
+        <a
+          href="/register"
+          className="mt-10 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-10 py-5 text-lg font-semibold text-white shadow-2xl shadow-red-500/40 hover:scale-105 transition"
+        >
+          Get started free
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </a>
+        <p className="mt-6 text-sm text-neutral-500">No credit card required</p>
+      </section>
 
-            <div>
-              <h4 className="font-bold mb-4">Legal</h4>
-              <ul className="space-y-2 text-gray-400 text-sm">
-                <li><a href="#" className="hover:text-white">Privacy</a></li>
-                <li><a href="#" className="hover:text-white">Terms</a></li>
-                <li><a href="#" className="hover:text-white">Contact</a></li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-white/10 mt-8 pt-8 text-center text-gray-400 text-sm">
-            © 2025 BlazePose Coach. All rights reserved.
-          </div>
+      {/* FOOTER */}
+      <footer className="px-6 py-12 bg-gradient-to-b from-white to-neutral-50 text-center text-sm text-neutral-600">
+        <img src="/logo.png" alt="Logo" className="h-10 w-auto mx-auto mb-4 opacity-90" />
+        <div className="flex flex-wrap justify-center gap-6">
+          <NavLink href="#features">Features</NavLink>
+          <NavLink href="#how-it-works">How it works</NavLink>
+          <NavLink href="#contact">Contact</NavLink>
+          <NavLink href="/privacy">Privacy</NavLink>
+          <NavLink href="/terms">Terms</NavLink>
         </div>
       </footer>
     </div>
