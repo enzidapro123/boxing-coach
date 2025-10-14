@@ -688,133 +688,112 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
 
   /* ----------------------------- Guard (hold + hints) --------------------- */
   /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
-
 function processGuard(kps: KP[]) {
-  if (!kps.length) return;
+    if (!kps.length) return;
 
-  const k = kpMap(kps);
-  const faceKeys = ["left_eye_inner","left_eye","left_eye_outer","right_eye_inner","right_eye","right_eye_outer","mouth_left","mouth_right","nose"] as const;
-  const facePts = faceKeys.map(n => k[n as string]).filter(Boolean) as KP[];
-  if (facePts.length < 3) return;
+    const k = kpMap(kps);
+    const L = evalArm(kps, "left");
+    const R = evalArm(kps, "right");
 
-  const le = k["left_eye"], re = k["right_eye"], ml = k["mouth_left"], mr = k["mouth_right"];
-  const faceWidth = (le && re && dist(le,re)) || (ml && mr && dist(ml,mr)) || (() => {
-    const xs = facePts.map(p => p.x); return Math.max(...xs) - Math.min(...xs);
-  })();
+    // 🎯 Face keypoints to detect contact
+    const faceKeys = [
+      "left_eye_inner",
+      "left_eye",
+      "left_eye_outer",
+      "right_eye_inner",
+      "right_eye",
+      "right_eye_outer",
+      "mouth_left",
+      "mouth_right",
+      "nose",
+    ] as const;
 
-  const L = [k["left_wrist"], k["left_index"], k["left_thumb"]].filter(Boolean) as KP[];
-  const R = [k["right_wrist"], k["right_index"], k["right_thumb"]].filter(Boolean) as KP[];
-  if (!L.length || !R.length) return;
+    const facePts = faceKeys.map((n) => k[n as string]).filter(Boolean) as KP[];
+    if (facePts.length < 3) return;
 
-  const minDist = (pts:KP[]) => Math.min(...pts.flatMap(p => facePts.map(f => dist(p,f))));
-  const S = (k["left_shoulder"] && k["right_shoulder"]) ? dist(k["left_shoulder"], k["right_shoulder"]) : 1;
-  const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth);
+    // Estimate face width (for detection radius)
+    const le = k["left_eye"],
+      re = k["right_eye"];
+    const ml = k["mouth_left"],
+      mr = k["mouth_right"];
+    const faceWidth =
+      (le && re && dist(le, re)) ||
+      (ml && mr && dist(ml, mr)) ||
+      (() => {
+        const xs = facePts.map((p) => p.x);
+        return Math.max(...xs) - Math.min(...xs);
+      })();
 
-  const dL = minDist(L), dR = minDist(R);
-  const leftOK  = Number.isFinite(dL) && dL <= RADIUS;
-  const rightOK = Number.isFinite(dR) && dR <= RADIUS;
-  const bothOK  = leftOK && rightOK;
+    const S = L.bodyScale || R.bodyScale || 1;
+    const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth); // sensitivity radius
 
-  const now = performance.now();
+    // 🖐️ Hand keypoints (3 per hand)
+    const leftHandPts = [
+      k["left_wrist"],
+      k["left_index"],
+      k["left_thumb"],
+    ].filter(Boolean) as KP[];
+    const rightHandPts = [
+      k["right_wrist"],
+      k["right_index"],
+      k["right_thumb"],
+    ].filter(Boolean) as KP[];
 
-  // Tunables
-  const START_DEBOUNCE_MS = 200;   // must have both OK this long to start
-  const DROP_DEBOUNCE_MS  = 600;   // must be not-both-OK this long to end
-  const MIN_HOLD_MS       = 1000;  // attempt counts as OK if held at least this long
-  const TICK_MS           = 1000;  // optional "per-second OK" ticks
+    if (!leftHandPts.length || !rightHandPts.length) return;
 
-  if (guardState.current === "searching") {
+    // Minimum distance between hand point and any face point
+    const minDistToFace = (points: KP[]) =>
+      Math.min(...points.flatMap((p) => facePts.map((f) => dist(p, f))));
+
+    const dL = minDistToFace(leftHandPts);
+    const dR = minDistToFace(rightHandPts);
+
+    const leftOK = Number.isFinite(dL) && dL <= RADIUS;
+    const rightOK = Number.isFinite(dR) && dR <= RADIUS;
+    const bothOK = leftOK && rightOK;
+
+    // ⏱️ Time-based guard accumulation
+    const now = performance.now();
+    const last = guardLastTs.current ?? now;
+    const dt = now - last;
+    guardLastTs.current = now;
+
     if (bothOK) {
-      if (guardAttempt.current.lastBothOkTs == null) {
-        guardAttempt.current.lastBothOkTs = now;
+      guardAccumMs.current += dt;
+      if (!guardWasUp.current) {
+        pushLog({ kind: "ok", text: "Guard up — both hands covering face." });
+        guardWasUp.current = true;
       }
-      // start attempt after debounce
-      if (now - guardAttempt.current.lastBothOkTs >= START_DEBOUNCE_MS) {
-        guardState.current = "holding";
-        guardAttempt.current.startTs = now;
-        guardAttempt.current.heldMs = 0;
-        guardBadHand.current = null;
-        pushLog({ kind: "ok", text: "Guard up — starting hold." });
+      const STEP = 1000; // log every second
+      while (guardAccumMs.current >= STEP) {
+        setReps((r) => r + 1);
+        guardAccumMs.current -= STEP;
+        pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
+                  {
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid /* , technique, user_id if no trigger */ })
+              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+          }
+        }
       }
     } else {
-      guardAttempt.current.lastBothOkTs = null;
-    }
-    return;
-  }
-
-  // holding
-  if (guardState.current === "holding") {
-    if (bothOK) {
-      // accumulate and emit optional 1s ticks
-      const delta =  (now - (guardAttempt.current.startTs ?? now));
-      const prevHeld = guardAttempt.current.heldMs;
-      guardAttempt.current.heldMs = delta;
-
-      // emit a tick each full second (optional)
-      const prevTicks = Math.floor(prevHeld / TICK_MS);
-      const currTicks = Math.floor(guardAttempt.current.heldMs / TICK_MS);
-if (currTicks > prevTicks) {
-  setReps((r) => r + 1);
-  pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
-
-  // ✅ DB write: one row per second
-  const sid = sessionIdRef.current;
-  if (sid && !sid.startsWith("local-")) {
-    supabase
-      .from("session_reps")
-      .insert({
-        session_id: sid,
-        // if you DON'T have the trigger that fills technique/user_id,
-        // pass them explicitly:
-        // technique: technique,   // 'guard'
-        // user_id: YOUR_CURRENT_USER_ID
-      })
-      .then(({ error }) => {
-        if (error) {
-          pushLog({ kind: "warn", text: `Save failed: ${error.message}` });
-          console.error("session_reps insert error", error);
-        }
-      });
-  } else {
-    // helps diagnose when running logged-out or before session creation
-    pushLog({ kind: "warn", text: "Not saving: missing/temporary sessionId" });
-  }
-}
-
-    } else {
-      // which hand failed (for a single WARN later)
-      guardBadHand.current = leftOK && !rightOK ? "right"
-                          : (!leftOK && rightOK ? "left" : "both");
-
-      // wait for drop debounce to finish the attempt
-      if (!guardAttempt.current.lastBothOkTs) {
-        guardAttempt.current.lastBothOkTs = now; // reuse as "first-not-both ts"
+      const HINT_COOLDOWN = 800;
+      if (now - guardLastHintTs.current >= HINT_COOLDOWN) {
+        let tip = "Bring both hands to your face level.";
+        if (leftOK && !rightOK)
+          tip = "Bring your RIGHT hand closer to your face.";
+        if (!leftOK && rightOK)
+          tip = "Bring your LEFT hand closer to your face.";
+        pushLog({ kind: "warn", text: tip });
+        guardLastHintTs.current = now;
       }
-      if (now - guardAttempt.current.lastBothOkTs >= DROP_DEBOUNCE_MS) {
-        const held = guardAttempt.current.heldMs;
-
-        if (held >= MIN_HOLD_MS) {
-          // successful attempt ended: no warn, we already logged ticks
-          pushLog({ kind: "ok", text: `Guard segment ended (${Math.round(held/1000)}s).` });
-        } else {
-          // single WARN for the whole failed attempt
-          const hand = guardBadHand.current === "both" ? "hands" : `${guardBadHand.current?.toUpperCase()} hand`;
-          pushLog({ kind: "warn", text: `Guard dropped too early — raise your ${hand}.` });
-          // DO NOT bump warn_count here if you decided guard shouldn't affect warn_count
-        }
-
-        // reset to searching
-        guardState.current = "searching";
-        guardAttempt.current = { startTs: null, heldMs: 0, lastBothOkTs: null };
-        guardBadHand.current = null;
-      }
+      guardWasUp.current = false;
+      guardAccumMs.current = 0;
     }
-
-    // reset the "not-both" timer if restored
-    if (bothOK) guardAttempt.current.lastBothOkTs = null;
   }
-}
-
   /* --------------------------------- loop -------------------------------- */
   const loop = useCallback(() => {
     if (!landmarkerRef.current || !videoRef.current) {

@@ -252,12 +252,9 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <a
             href="/"
-            className="flex items-center gap-3 hover:opacity-90 transition"
+            className="flex items-center gap-2 hover:opacity-80 transition"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 grid place-items-center text-white text-lg shadow-lg shadow-red-500/30">
-              🥊
-            </div>
-            <h1 className="text-xl font-bold">BlazePose Coach</h1>
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
           </a>
 
           <UserBadge
@@ -306,7 +303,7 @@ export default function DashboardPage() {
           />
         </section>
 
-        {/* Main Grid */}
+        {/* Quick Actions + Recent Activity */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
           <div className="relative">
@@ -346,7 +343,7 @@ export default function DashboardPage() {
                 <div className="space-y-4">
                   {recent.map((r) => (
                     <div
-                      key={r.id}
+                      key={r.session_id}
                       className="rounded-2xl border border-neutral-200 bg-white/70 p-5 hover:bg-white transition"
                     >
                       <div className="flex items-center justify-between">
@@ -370,7 +367,7 @@ export default function DashboardPage() {
                             {r.total_reps ?? 0}
                           </div>
                           <p className="text-xs text-neutral-600 mt-1">
-                            Total reps
+                            Total reps{r.technique === "guard" ? " (secs)" : ""}
                           </p>
                         </div>
                       </div>
