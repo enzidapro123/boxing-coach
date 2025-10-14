@@ -113,6 +113,7 @@ export default function PoseClient({ technique, stance }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const landmarkerRef = useRef<PoseLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -205,8 +206,11 @@ export default function PoseClient({ technique, stance }: Props) {
   const guardLastTs = useRef<number | null>(null);
   const guardAccumMs = useRef(0);
   const guardWasUp = useRef(false);
-  const guardLastHintTs = useRef(0); // for periodic warnings when NOT ok
-
+  const guardLastHintTs = useRef(0);
+  const guardSecondsRef = useRef(0);
+const guardState = useRef<"searching"|"holding">("searching");
+const guardAttempt = useRef<{ startTs:number|null; heldMs:number; lastBothOkTs:number|null }>({startTs:null, heldMs:0, lastBothOkTs:null});
+const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
   /* -------------------------------- camera -------------------------------- */
   const initCamera = useCallback(async () => {
     const video = videoRef.current!;
@@ -420,6 +424,15 @@ export default function PoseClient({ technique, stance }: Props) {
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct jab (${mustBe} arm)` });
+          {
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid /* , technique, user_id if no trigger */ })
+              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+          }
+        }
         } else {
           const tips = [
             straight ? null : "straighten elbow",
@@ -471,6 +484,15 @@ export default function PoseClient({ technique, stance }: Props) {
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct cross (${active} arm)` });
+          {
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+          }
+        }
         } else {
           const tips = [
             straight ? null : "straighten elbow",
@@ -544,6 +566,15 @@ export default function PoseClient({ technique, stance }: Props) {
         if (elbowOk && alignOk && latOk && notCross) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct hook (${active} arm)` });
+          {
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+          }
+        }
         } else {
           const tips = [
             elbowOk ? null : "bend elbow ~90°",
@@ -624,6 +655,15 @@ export default function PoseClient({ technique, stance }: Props) {
         if (elbowOk && vertical && riseOk && notCross) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct uppercut (${active} arm)` });
+          {
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+          }
+        }
         } else {
           const tips = [
             elbowOk ? null : "keep elbow ~90° (don’t straighten)",
@@ -648,103 +688,132 @@ export default function PoseClient({ technique, stance }: Props) {
 
   /* ----------------------------- Guard (hold + hints) --------------------- */
   /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
-  function processGuard(kps: KP[]) {
-    if (!kps.length) return;
 
-    const k = kpMap(kps);
-    const L = evalArm(kps, "left");
-    const R = evalArm(kps, "right");
+function processGuard(kps: KP[]) {
+  if (!kps.length) return;
 
-    // 🎯 Face keypoints to detect contact
-    const faceKeys = [
-      "left_eye_inner",
-      "left_eye",
-      "left_eye_outer",
-      "right_eye_inner",
-      "right_eye",
-      "right_eye_outer",
-      "mouth_left",
-      "mouth_right",
-      "nose",
-    ] as const;
+  const k = kpMap(kps);
+  const faceKeys = ["left_eye_inner","left_eye","left_eye_outer","right_eye_inner","right_eye","right_eye_outer","mouth_left","mouth_right","nose"] as const;
+  const facePts = faceKeys.map(n => k[n as string]).filter(Boolean) as KP[];
+  if (facePts.length < 3) return;
 
-    const facePts = faceKeys.map((n) => k[n as string]).filter(Boolean) as KP[];
-    if (facePts.length < 3) return;
+  const le = k["left_eye"], re = k["right_eye"], ml = k["mouth_left"], mr = k["mouth_right"];
+  const faceWidth = (le && re && dist(le,re)) || (ml && mr && dist(ml,mr)) || (() => {
+    const xs = facePts.map(p => p.x); return Math.max(...xs) - Math.min(...xs);
+  })();
 
-    // Estimate face width (for detection radius)
-    const le = k["left_eye"],
-      re = k["right_eye"];
-    const ml = k["mouth_left"],
-      mr = k["mouth_right"];
-    const faceWidth =
-      (le && re && dist(le, re)) ||
-      (ml && mr && dist(ml, mr)) ||
-      (() => {
-        const xs = facePts.map((p) => p.x);
-        return Math.max(...xs) - Math.min(...xs);
-      })();
+  const L = [k["left_wrist"], k["left_index"], k["left_thumb"]].filter(Boolean) as KP[];
+  const R = [k["right_wrist"], k["right_index"], k["right_thumb"]].filter(Boolean) as KP[];
+  if (!L.length || !R.length) return;
 
-    const S = L.bodyScale || R.bodyScale || 1;
-    const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth); // sensitivity radius
+  const minDist = (pts:KP[]) => Math.min(...pts.flatMap(p => facePts.map(f => dist(p,f))));
+  const S = (k["left_shoulder"] && k["right_shoulder"]) ? dist(k["left_shoulder"], k["right_shoulder"]) : 1;
+  const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth);
 
-    // 🖐️ Hand keypoints (3 per hand)
-    const leftHandPts = [
-      k["left_wrist"],
-      k["left_index"],
-      k["left_thumb"],
-    ].filter(Boolean) as KP[];
-    const rightHandPts = [
-      k["right_wrist"],
-      k["right_index"],
-      k["right_thumb"],
-    ].filter(Boolean) as KP[];
+  const dL = minDist(L), dR = minDist(R);
+  const leftOK  = Number.isFinite(dL) && dL <= RADIUS;
+  const rightOK = Number.isFinite(dR) && dR <= RADIUS;
+  const bothOK  = leftOK && rightOK;
 
-    if (!leftHandPts.length || !rightHandPts.length) return;
+  const now = performance.now();
 
-    // Minimum distance between hand point and any face point
-    const minDistToFace = (points: KP[]) =>
-      Math.min(...points.flatMap((p) => facePts.map((f) => dist(p, f))));
+  // Tunables
+  const START_DEBOUNCE_MS = 200;   // must have both OK this long to start
+  const DROP_DEBOUNCE_MS  = 600;   // must be not-both-OK this long to end
+  const MIN_HOLD_MS       = 1000;  // attempt counts as OK if held at least this long
+  const TICK_MS           = 1000;  // optional "per-second OK" ticks
 
-    const dL = minDistToFace(leftHandPts);
-    const dR = minDistToFace(rightHandPts);
-
-    const leftOK = Number.isFinite(dL) && dL <= RADIUS;
-    const rightOK = Number.isFinite(dR) && dR <= RADIUS;
-    const bothOK = leftOK && rightOK;
-
-    // ⏱️ Time-based guard accumulation
-    const now = performance.now();
-    const last = guardLastTs.current ?? now;
-    const dt = now - last;
-    guardLastTs.current = now;
-
+  if (guardState.current === "searching") {
     if (bothOK) {
-      guardAccumMs.current += dt;
-      if (!guardWasUp.current) {
-        pushLog({ kind: "ok", text: "Guard up — both hands covering face." });
-        guardWasUp.current = true;
+      if (guardAttempt.current.lastBothOkTs == null) {
+        guardAttempt.current.lastBothOkTs = now;
       }
-      const STEP = 1000; // log every second
-      while (guardAccumMs.current >= STEP) {
-        setReps((r) => r + 1);
-        guardAccumMs.current -= STEP;
-        pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
+      // start attempt after debounce
+      if (now - guardAttempt.current.lastBothOkTs >= START_DEBOUNCE_MS) {
+        guardState.current = "holding";
+        guardAttempt.current.startTs = now;
+        guardAttempt.current.heldMs = 0;
+        guardBadHand.current = null;
+        pushLog({ kind: "ok", text: "Guard up — starting hold." });
       }
     } else {
-      const HINT_COOLDOWN = 800;
-      if (now - guardLastHintTs.current >= HINT_COOLDOWN) {
-        let tip = "Bring both hands to your face level.";
-        if (leftOK && !rightOK)
-          tip = "Bring your RIGHT hand closer to your face.";
-        if (!leftOK && rightOK)
-          tip = "Bring your LEFT hand closer to your face.";
-        pushLog({ kind: "warn", text: tip });
-        guardLastHintTs.current = now;
-      }
-      guardWasUp.current = false;
-      guardAccumMs.current = 0;
+      guardAttempt.current.lastBothOkTs = null;
     }
+    return;
   }
+
+  // holding
+  if (guardState.current === "holding") {
+    if (bothOK) {
+      // accumulate and emit optional 1s ticks
+      const delta =  (now - (guardAttempt.current.startTs ?? now));
+      const prevHeld = guardAttempt.current.heldMs;
+      guardAttempt.current.heldMs = delta;
+
+      // emit a tick each full second (optional)
+      const prevTicks = Math.floor(prevHeld / TICK_MS);
+      const currTicks = Math.floor(guardAttempt.current.heldMs / TICK_MS);
+if (currTicks > prevTicks) {
+  setReps((r) => r + 1);
+  pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
+
+  // ✅ DB write: one row per second
+  const sid = sessionIdRef.current;
+  if (sid && !sid.startsWith("local-")) {
+    supabase
+      .from("session_reps")
+      .insert({
+        session_id: sid,
+        // if you DON'T have the trigger that fills technique/user_id,
+        // pass them explicitly:
+        // technique: technique,   // 'guard'
+        // user_id: YOUR_CURRENT_USER_ID
+      })
+      .then(({ error }) => {
+        if (error) {
+          pushLog({ kind: "warn", text: `Save failed: ${error.message}` });
+          console.error("session_reps insert error", error);
+        }
+      });
+  } else {
+    // helps diagnose when running logged-out or before session creation
+    pushLog({ kind: "warn", text: "Not saving: missing/temporary sessionId" });
+  }
+}
+
+    } else {
+      // which hand failed (for a single WARN later)
+      guardBadHand.current = leftOK && !rightOK ? "right"
+                          : (!leftOK && rightOK ? "left" : "both");
+
+      // wait for drop debounce to finish the attempt
+      if (!guardAttempt.current.lastBothOkTs) {
+        guardAttempt.current.lastBothOkTs = now; // reuse as "first-not-both ts"
+      }
+      if (now - guardAttempt.current.lastBothOkTs >= DROP_DEBOUNCE_MS) {
+        const held = guardAttempt.current.heldMs;
+
+        if (held >= MIN_HOLD_MS) {
+          // successful attempt ended: no warn, we already logged ticks
+          pushLog({ kind: "ok", text: `Guard segment ended (${Math.round(held/1000)}s).` });
+        } else {
+          // single WARN for the whole failed attempt
+          const hand = guardBadHand.current === "both" ? "hands" : `${guardBadHand.current?.toUpperCase()} hand`;
+          pushLog({ kind: "warn", text: `Guard dropped too early — raise your ${hand}.` });
+          // DO NOT bump warn_count here if you decided guard shouldn't affect warn_count
+        }
+
+        // reset to searching
+        guardState.current = "searching";
+        guardAttempt.current = { startTs: null, heldMs: 0, lastBothOkTs: null };
+        guardBadHand.current = null;
+      }
+    }
+
+    // reset the "not-both" timer if restored
+    if (bothOK) guardAttempt.current.lastBothOkTs = null;
+  }
+}
 
   /* --------------------------------- loop -------------------------------- */
   const loop = useCallback(() => {
@@ -795,6 +864,7 @@ export default function PoseClient({ technique, stance }: Props) {
     guardWasUp.current = false;
     guardLastTs.current = null;
     guardLastHintTs.current = 0;
+    guardSecondsRef.current = 0;
 
     try {
       const video = await initCamera();
@@ -803,6 +873,7 @@ export default function PoseClient({ technique, stance }: Props) {
         landmarkerRef.current.detectForVideo(video, performance.now());
       } catch {}
       const sid = await startSupabaseSession(technique);
+      sessionIdRef.current = sid;  
       setSessionId(sid);
       setStartedAtMs(Date.now());
       setRunning(true);
@@ -829,6 +900,7 @@ export default function PoseClient({ technique, stance }: Props) {
     rafRef.current = null;
     setRunning(false);
     setLoading(false);
+    sessionIdRef.current = null;
 
     (videoRef.current?.srcObject as MediaStream | null)
       ?.getTracks()
@@ -852,6 +924,7 @@ export default function PoseClient({ technique, stance }: Props) {
       (videoRef.current?.srcObject as MediaStream | null)
         ?.getTracks()
         .forEach((t) => t.stop());
+        sessionIdRef.current = null;
     };
   }, []);
 
