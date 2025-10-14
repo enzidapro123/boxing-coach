@@ -4,52 +4,56 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
-type ProgressRow = {
-  user_id: string;
-  technique: string;
-  accuracy: number | null;
-  duration: number | null; // minutes (optional)
-  created_at: string; // timestamptz
-};
-
+/* ----------------------------- Types ----------------------------- */
 type SessionRow = {
+  id: string;
   user_id: string;
   technique: string;
   started_at: string | null;
-  ended_at: string | null;
-  duration_seconds: number | null;
-  score: number | null;
+  finished_at: string | null;
+  duration_sec: number | null;
+  total_reps: number | null;
+};
+
+/* --------------------------- Helpers ----------------------------- */
+const iconFor = (tech: string) => {
+  const t = (tech || "").toLowerCase();
+  if (t === "jab") return "👊";
+  if (t === "cross") return "💥";
+  if (t === "hook") return "🌟";
+  if (t === "uppercut") return "⚡";
+  if (t === "guard") return "🛡️";
+  return "🥊";
+};
+
+const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+const statGradientText = (key: "red" | "blue" | "green" | "purple") => {
+  if (key === "red")
+    return "bg-gradient-to-r from-white to-red-400 bg-clip-text text-transparent";
+  if (key === "blue")
+    return "bg-gradient-to-r from-white to-blue-400 bg-clip-text text-transparent";
+  if (key === "green")
+    return "bg-gradient-to-r from-white to-green-400 bg-clip-text text-transparent";
+  return "bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent";
 };
 
 export default function DashboardPage() {
   const router = useRouter();
-
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [recent, setRecent] = useState<SessionRow[]>([]);
 
-  const [stats, setStats] = useState({
-    accuracy: 0,
-    sessions: 0,
-    totalTime: "0h",
-    techniquesMastered: 0,
-    mostPracticed: "-",
-  });
-
-  const [recent, setRecent] = useState<
-    { technique: string; created_at: string; accuracy: number | null }[]
-  >([]);
-
+  // --- Fetch user and sessions
   useEffect(() => {
     let cancelled = false;
-
     const run = async () => {
       try {
         setErr(null);
         setLoading(true);
 
-        // 1) Require auth
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -58,163 +62,42 @@ export default function DashboardPage() {
           return;
         }
 
-        // 2) Profile
-        const { data: profile, error: profileErr } = await supabase
+        // Fetch username/avatar from your users table
+        const { data: profile } = await supabase
           .from("users")
           .select("username, avatar_url")
           .eq("id", user.id)
           .maybeSingle();
 
-        if (profileErr) throw profileErr;
-        if (cancelled) return;
-
-        setUserName((profile?.username ?? user.email) || user.email || "User");
-        setAvatarUrl(profile?.avatar_url || null);
-
-        // 3) Data
-        const [progRes, sessRes] = await Promise.all([
-          supabase
-            .from("progress")
-            .select("technique, accuracy, created_at, duration, user_id")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("sessions")
-            .select(
-              "technique, started_at, ended_at, duration_seconds, score, user_id"
-            )
-            .eq("user_id", user.id)
-            .order("started_at", { ascending: false }),
-        ]);
-
-        const progress: ProgressRow[] = Array.isArray(progRes.data)
-          ? progRes.data
-          : [];
-        const sessions: SessionRow[] = Array.isArray(sessRes.data)
-          ? sessRes.data
-          : [];
-
-        // ----- Build stats -----
-        const totalSessions = sessions.length || progress.length;
-
-        const accSamples: number[] = [];
-        if (progress.length) {
-          for (const r of progress)
-            if (typeof r.accuracy === "number") accSamples.push(r.accuracy);
-        } else if (sessions.length) {
-          for (const r of sessions)
-            if (typeof r.score === "number") accSamples.push(r.score as number);
-        }
-        const avgAccuracy = accSamples.length
-          ? Math.round(
-              accSamples.reduce((a, b) => a + b, 0) / accSamples.length
-            )
-          : 0;
-
-        let totalSeconds = 0;
-        if (sessions.length) {
-          for (const s of sessions) {
-            if (typeof s.duration_seconds === "number") {
-              totalSeconds += s.duration_seconds!;
-            } else if (s.started_at && s.ended_at) {
-              const sec =
-                (new Date(s.ended_at).getTime() -
-                  new Date(s.started_at).getTime()) /
-                1000;
-              if (sec > 0) totalSeconds += sec;
-            }
-          }
-        } else if (progress.length) {
-          const mins = progress.reduce((sum, r) => sum + (r.duration || 0), 0);
-          totalSeconds = mins * 60;
-        }
-        const totalHours = (totalSeconds / 3600).toFixed(1);
-
-        const masteredSet = new Set<string>();
-        const sourceForMastery = progress.length ? progress : sessions;
-        for (const r of sourceForMastery) {
-          const acc = (r as any).accuracy ?? (r as any).score ?? null;
-          if (typeof acc === "number" && acc >= 85) {
-            masteredSet.add((r as any).technique);
-          }
+        if (!cancelled) {
+          setUserName(profile?.username ?? user.email ?? "User");
+          setAvatarUrl(profile?.avatar_url ?? null);
         }
 
-        const counts: Record<string, number> = {};
-        const sourceForCounts = sessions.length ? sessions : progress;
-        for (const r of sourceForCounts) {
-          const t = (r as any).technique || "-";
-          counts[t] = (counts[t] || 0) + 1;
-        }
-        const mostPracticed =
-          Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "-";
+        // Fetch recent sessions (SAME LOGIC AS /history)
+        const { data, error } = await supabase
+          .from("training_sessions")
+          .select(
+            "id, user_id, technique, started_at, finished_at, duration_sec, total_reps"
+          )
+          .eq("user_id", user.id)
+          .order("started_at", { ascending: false })
+          .limit(5);
 
-        const recentUnified: {
-          technique: string;
-          created_at: string;
-          accuracy: number | null;
-        }[] = [];
-        for (const p of progress) {
-          recentUnified.push({
-            technique: p.technique,
-            created_at: p.created_at,
-            accuracy: p.accuracy ?? null,
-          });
-        }
-        for (const s of sessions) {
-          recentUnified.push({
-            technique: s.technique,
-            created_at: s.started_at || s.ended_at || new Date().toISOString(),
-            accuracy: s.score ?? null,
-          });
-        }
-        recentUnified.sort(
-          (a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-
-        if (cancelled) return;
-
-        setStats({
-          accuracy: avgAccuracy,
-          sessions: totalSessions,
-          totalTime: `${totalHours}h`,
-          techniquesMastered: masteredSet.size,
-          mostPracticed,
-        });
-        setRecent(recentUnified.slice(0, 5));
+        if (error) throw error;
+        if (!cancelled) setRecent(data ?? []);
       } catch (e: any) {
-        if (!cancelled) setErr(e?.message || "Failed to load dashboard.");
+        if (!cancelled) setErr(e.message || "Error loading dashboard");
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
     run();
-
-    // Keep page in sync if auth changes in another tab
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") router.replace("/login");
-      if (event === "SIGNED_IN") router.replace("/dashboard");
-    });
-
     return () => {
       cancelled = true;
-      authListener?.subscription?.unsubscribe?.();
     };
   }, [router]);
-
-  const iconFor = (raw: string) => {
-    const t = (raw || "").toLowerCase();
-    if (t === "jab") return "👊";
-    if (t === "cross") return "💥";
-    if (t === "hook") return "🌟";
-    if (t === "uppercut") return "⚡";
-    if (t === "guard") return "🛡️";
-    return "🥊";
-  };
-
-  const pretty = (s: string) =>
-    s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
   if (loading) {
     return (
@@ -245,7 +128,9 @@ export default function DashboardPage() {
     );
   }
 
+  /* ------------------------- UI ------------------------- */
   return (
+<<<<<<< HEAD
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
       {/* Floating gradient orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -291,6 +176,31 @@ export default function DashboardPage() {
 
       <main className="mx-auto max-w-7xl px-6 py-10">
         {/* Welcome */}
+=======
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      {/* Navbar */}
+      <header className="bg-white/5 backdrop-blur-lg border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center text-xl">
+              🥊
+            </div>
+            <h1 className="text-xl font-bold text-white">BlazePose Coach</h1>
+          </div>
+
+          <UserBadge
+            userName={userName}
+            avatarUrl={avatarUrl}
+            onSignOut={async () => {
+              await supabase.auth.signOut();
+              router.replace("/login");
+            }}
+          />
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-10">
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
         <section className="mb-10">
           <h2 className="text-4xl md:text-5xl font-bold mb-2 tracking-tight">
             Welcome back,{" "}
@@ -298,6 +208,7 @@ export default function DashboardPage() {
               {userName}
             </span>{" "}
           </h2>
+<<<<<<< HEAD
           <p className="text-neutral-600 text-lg">
             Here’s an overview of your training performance.
           </p>
@@ -329,6 +240,19 @@ export default function DashboardPage() {
           {/* Quick Actions */}
           <div className="rounded-3xl border border-red-100/70 bg-white/80 backdrop-blur p-8 shadow-sm">
             <h3 className="text-xl font-semibold mb-6">Quick actions</h3>
+=======
+          <p className="text-gray-400 text-lg">
+            Here's an overview of your recent training sessions.
+          </p>
+        </section>
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+            <h3 className="text-xl font-semibold text-white mb-6">
+              Quick Actions
+            </h3>
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
             <div className="flex flex-col gap-4">
               <a
                 href="/training"
@@ -349,6 +273,7 @@ export default function DashboardPage() {
                 Profile settings
               </a>
             </div>
+<<<<<<< HEAD
 
             <div className="mt-8 pt-6 border-t border-neutral-200/60">
               <h4 className="text-sm text-neutral-500 mb-1">Most practiced</h4>
@@ -361,11 +286,21 @@ export default function DashboardPage() {
           {/* Recent Activity */}
           <div className="lg:col-span-2 rounded-3xl border border-red-100/70 bg-white/80 backdrop-blur p-8 shadow-sm">
             <h3 className="text-xl font-semibold mb-6">Recent activity</h3>
+=======
+          </div>
+
+          {/* Recent Activity */}
+          <div className="lg:col-span-2 bg-white/5 border border-white/10 rounded-2xl p-8">
+            <h3 className="text-xl font-semibold text-white mb-6">
+              Recent Activity
+            </h3>
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
 
             {recent.length > 0 ? (
               <div className="space-y-4">
-                {recent.map((session, i) => (
+                {recent.map((r) => (
                   <div
+<<<<<<< HEAD
                     key={i}
                     className="rounded-2xl border border-neutral-200 bg-white/70 p-5 hover:border-red-200 hover:bg-red-50/50 transition"
                   >
@@ -386,9 +321,28 @@ export default function DashboardPage() {
                             minute: "2-digit",
                           })}
                         </p>
+=======
+                    key={r.id}
+                    className="bg-white/5 border border-white/10 rounded-xl p-5 hover:bg-white/10 transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{iconFor(r.technique)}</span>
+                        <div>
+                          <div className="font-semibold text-white text-lg">
+                            {pretty(r.technique)}
+                          </div>
+                          <p className="text-sm text-gray-400">
+                            {r.started_at
+                              ? new Date(r.started_at).toLocaleString()
+                              : "—"}
+                          </p>
+                        </div>
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
                       </div>
 
                       <div className="text-right">
+<<<<<<< HEAD
                         {typeof session.accuracy === "number" ? (
                           <>
                             <div
@@ -411,6 +365,12 @@ export default function DashboardPage() {
                             No accuracy recorded
                           </p>
                         )}
+=======
+                        <div className="text-3xl font-bold text-blue-400">
+                          {r.total_reps ?? 0}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Total Reps</p>
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
                       </div>
                     </div>
                   </div>
@@ -418,16 +378,57 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="text-center py-12">
+<<<<<<< HEAD
                 <div className="text-6xl mb-3"></div>
                 <p className="text-neutral-700 text-lg">No recent sessions</p>
                 <p className="text-neutral-500 text-sm mt-1">
                   Start your first training session to see progress here.
+=======
+                <div className="text-6xl mb-4">🥊</div>
+                <p className="text-gray-400 text-lg">No recent sessions</p>
+                <p className="text-gray-500 text-sm mt-2">
+                  Start your first training session to see your progress here.
+>>>>>>> 274c41e (Updated dashboard and added progress folder)
                 </p>
               </div>
             )}
           </div>
-        </section>
+        </div>
       </main>
+    </div>
+  );
+}
+
+/* ------------------------- Components ------------------------- */
+function UserBadge({
+  userName,
+  avatarUrl,
+  onSignOut,
+}: {
+  userName: string | null;
+  avatarUrl: string | null;
+  onSignOut: () => Promise<void>;
+}) {
+  return (
+    <div className="flex items-center gap-4">
+      <span className="text-sm text-gray-300">{userName}</span>
+      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-white/20">
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt="Profile"
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
+        )}
+      </div>
+      <button
+        onClick={onSignOut}
+        className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-sm hover:bg-white/20"
+      >
+        Sign out
+      </button>
     </div>
   );
 }
