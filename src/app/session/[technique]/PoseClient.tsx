@@ -208,9 +208,13 @@ export default function PoseClient({ technique, stance }: Props) {
   const guardWasUp = useRef(false);
   const guardLastHintTs = useRef(0);
   const guardSecondsRef = useRef(0);
-const guardState = useRef<"searching"|"holding">("searching");
-const guardAttempt = useRef<{ startTs:number|null; heldMs:number; lastBothOkTs:number|null }>({startTs:null, heldMs:0, lastBothOkTs:null});
-const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
+  const guardState = useRef<"searching" | "holding">("searching");
+  const guardAttempt = useRef<{
+    startTs: number | null;
+    heldMs: number;
+    lastBothOkTs: number | null;
+  }>({ startTs: null, heldMs: 0, lastBothOkTs: null });
+  const guardBadHand = useRef<"left" | "right" | "both" | null>(null);
   /* -------------------------------- camera -------------------------------- */
   const initCamera = useCallback(async () => {
     const video = videoRef.current!;
@@ -425,14 +429,22 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct jab (${mustBe} arm)` });
           {
-          const sid = sessionIdRef.current;
-          if (sid && !sid.startsWith("local-")) {
-            supabase
-              .from("session_reps")
-              .insert({ session_id: sid /* , technique, user_id if no trigger */ })
-              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+            const sid = sessionIdRef.current;
+            if (sid && !sid.startsWith("local-")) {
+              supabase
+                .from("session_reps")
+                .insert({
+                  session_id: sid /* , technique, user_id if no trigger */,
+                })
+                .then(({ error }) => {
+                  if (error)
+                    pushLog({
+                      kind: "warn",
+                      text: `Save failed: ${error.message}`,
+                    });
+                });
+            }
           }
-        }
         } else {
           const tips = [
             straight ? null : "straighten elbow",
@@ -485,14 +497,20 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct cross (${active} arm)` });
           {
-          const sid = sessionIdRef.current;
-          if (sid && !sid.startsWith("local-")) {
-            supabase
-              .from("session_reps")
-              .insert({ session_id: sid })
-              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+            const sid = sessionIdRef.current;
+            if (sid && !sid.startsWith("local-")) {
+              supabase
+                .from("session_reps")
+                .insert({ session_id: sid })
+                .then(({ error }) => {
+                  if (error)
+                    pushLog({
+                      kind: "warn",
+                      text: `Save failed: ${error.message}`,
+                    });
+                });
+            }
           }
-        }
         } else {
           const tips = [
             straight ? null : "straighten elbow",
@@ -567,14 +585,20 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct hook (${active} arm)` });
           {
-          const sid = sessionIdRef.current;
-          if (sid && !sid.startsWith("local-")) {
-            supabase
-              .from("session_reps")
-              .insert({ session_id: sid })
-              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+            const sid = sessionIdRef.current;
+            if (sid && !sid.startsWith("local-")) {
+              supabase
+                .from("session_reps")
+                .insert({ session_id: sid })
+                .then(({ error }) => {
+                  if (error)
+                    pushLog({
+                      kind: "warn",
+                      text: `Save failed: ${error.message}`,
+                    });
+                });
+            }
           }
-        }
         } else {
           const tips = [
             elbowOk ? null : "bend elbow ~90°",
@@ -656,14 +680,20 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct uppercut (${active} arm)` });
           {
-          const sid = sessionIdRef.current;
-          if (sid && !sid.startsWith("local-")) {
-            supabase
-              .from("session_reps")
-              .insert({ session_id: sid })
-              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+            const sid = sessionIdRef.current;
+            if (sid && !sid.startsWith("local-")) {
+              supabase
+                .from("session_reps")
+                .insert({ session_id: sid })
+                .then(({ error }) => {
+                  if (error)
+                    pushLog({
+                      kind: "warn",
+                      text: `Save failed: ${error.message}`,
+                    });
+                });
+            }
           }
-        }
         } else {
           const tips = [
             elbowOk ? null : "keep elbow ~90° (don’t straighten)",
@@ -688,7 +718,7 @@ const guardBadHand = useRef<"left"|"right"|"both"|null>(null);
 
   /* ----------------------------- Guard (hold + hints) --------------------- */
   /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
-function processGuard(kps: KP[]) {
+  function processGuard(kps: KP[]) {
     if (!kps.length) return;
 
     const k = kpMap(kps);
@@ -769,13 +799,21 @@ function processGuard(kps: KP[]) {
         setReps((r) => r + 1);
         guardAccumMs.current -= STEP;
         pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
-                  {
+        {
           const sid = sessionIdRef.current;
           if (sid && !sid.startsWith("local-")) {
             supabase
               .from("session_reps")
-              .insert({ session_id: sid /* , technique, user_id if no trigger */ })
-              .then(({ error }) => { if (error) pushLog({ kind:"warn", text:`Save failed: ${error.message}` }); });
+              .insert({
+                session_id: sid /* , technique, user_id if no trigger */,
+              })
+              .then(({ error }) => {
+                if (error)
+                  pushLog({
+                    kind: "warn",
+                    text: `Save failed: ${error.message}`,
+                  });
+              });
           }
         }
       }
@@ -852,7 +890,7 @@ function processGuard(kps: KP[]) {
         landmarkerRef.current.detectForVideo(video, performance.now());
       } catch {}
       const sid = await startSupabaseSession(technique);
-      sessionIdRef.current = sid;  
+      sessionIdRef.current = sid;
       setSessionId(sid);
       setStartedAtMs(Date.now());
       setRunning(true);
@@ -903,7 +941,7 @@ function processGuard(kps: KP[]) {
       (videoRef.current?.srcObject as MediaStream | null)
         ?.getTracks()
         .forEach((t) => t.stop());
-        sessionIdRef.current = null;
+      sessionIdRef.current = null;
     };
   }, []);
 

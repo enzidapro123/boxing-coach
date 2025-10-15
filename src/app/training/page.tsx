@@ -1,6 +1,8 @@
+// app/training/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
 
 export default function TrainingPage() {
@@ -28,11 +30,11 @@ export default function TrainingPage() {
   }, []);
 
   const techniques = [
-    { name: "Jab", aura: "from-red-600 to-orange-500",},
-    { name: "Cross", aura: "from-orange-600 to-red-500",},
-    { name: "Hook", aura: "from-pink-600 to-rose-500",},
-    { name: "Uppercut", aura: "from-red-500 to-orange-500", },
-    { name: "Guard", aura: "from-amber-600 to-red-500",},
+    { name: "Jab", aura: "from-red-600 to-orange-500" },
+    { name: "Cross", aura: "from-orange-600 to-red-500" },
+    { name: "Hook", aura: "from-pink-600 to-rose-500" },
+    { name: "Uppercut", aura: "from-red-500 to-orange-500" },
+    { name: "Guard", aura: "from-amber-600 to-red-500" },
   ];
 
   return (
@@ -47,17 +49,39 @@ export default function TrainingPage() {
       {/* Top Navbar */}
       <header className="sticky top-0 z-50 border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-            <span className="sr-only">BlazePose Coach</span>
-          </a>
+          {/* Left section: Icon + Back to Dashboard */}
+          <div className="flex items-center gap-3">
+            {/* BlazePose icon */}
+            <Link
+              href="/dashboard"
+              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 text-white text-xl shadow-lg shadow-red-500/30 hover:scale-[1.05] transition"
+              title="Dashboard"
+              prefetch
+            >
+              🥊
+            </Link>
 
+            {/* Back button */}
+            <Link
+              href="/dashboard"
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
+              prefetch
+            >
+              ⏪ Back to Dashboard
+            </Link>
+          </div>
+
+          {/* User info */}
           <div className="flex items-center gap-4">
             <span className="text-sm text-neutral-600">{userName}</span>
             <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-red-200/60 bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold">
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                <img
+                  src={avatarUrl}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
               )}
@@ -78,7 +102,8 @@ export default function TrainingPage() {
               </span>
             </h1>
             <p className="mt-4 text-lg text-neutral-600">
-              Choose a technique below to begin personalized AI-powered coaching.
+              Choose a technique below to begin personalized AI-powered
+              coaching.
             </p>
           </section>
 
@@ -111,7 +136,12 @@ export default function TrainingPage() {
                       stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 7l5 5m0 0l-5 5m5-5H6"
+                      />
                     </svg>
                   </div>
                 </div>
@@ -119,13 +149,13 @@ export default function TrainingPage() {
             ))}
           </section>
 
-          {/* CTA */}
+          {/* Bottom CTA */}
           <div className="text-center mt-16">
             <a
               href="/dashboard"
               className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-white font-semibold shadow-md hover:scale-105 transition"
             >
-              ← Back to dashboard
+              ← Back to Dashboard
             </a>
           </div>
         </div>

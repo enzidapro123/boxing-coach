@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
@@ -30,7 +31,6 @@ export default function ProfilePage() {
       setUserId(user.id);
       setEmail(user.email ?? "");
 
-      // ensure profile row exists (id matches auth.users.id)
       await ensureProfileRow();
 
       const { data: profile, error } = await supabase
@@ -78,7 +78,6 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
-    // simple client-side checks
     if (!file.type.startsWith("image/")) {
       setErr("Please upload an image file (PNG/JPG).");
       e.target.value = "";
@@ -96,7 +95,6 @@ export default function ProfilePage() {
     const ext = (file.name.split(".").pop() || "png").toLowerCase();
     const path = `${userId}/${Date.now()}.${ext}`;
 
-    // upload to Supabase Storage (bucket must be named 'avatars')
     const { error: uploadErr } = await supabase.storage
       .from("avatars")
       .upload(path, file, {
@@ -112,17 +110,9 @@ export default function ProfilePage() {
       return;
     }
 
-    // If bucket is PUBLIC:
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
     const publicUrl = data.publicUrl;
 
-    // If bucket is PRIVATE, use this instead:
-    // const { data: signed, error: signErr } =
-    //   await supabase.storage.from("avatars").createSignedUrl(path, 60 * 60);
-    // if (signErr) { setMsg(null); setErr(signErr.message); return; }
-    // const publicUrl = signed.signedUrl;
-
-    // save to profile
     const { error: updErr } = await supabase
       .from("users")
       .update({ avatar_url: publicUrl })
@@ -136,7 +126,7 @@ export default function ProfilePage() {
       setMsg("Avatar uploaded. Don’t forget to Save.");
     }
 
-    e.target.value = ""; // allow reselecting same file
+    e.target.value = "";
   };
 
   const signOut = async () => {
@@ -152,24 +142,34 @@ export default function ProfilePage() {
         <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
       </div>
 
-      {/* Nav */}
+      {/* Header */}
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 hover:opacity-90 transition">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 grid place-items-center text-white text-lg shadow-lg shadow-red-500/30">
+          {/* Left section: icon + back button */}
+          <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 text-white text-xl shadow-lg shadow-red-500/30 hover:scale-[1.05] transition"
+              title="Dashboard"
+              prefetch
+            >
               🥊
-            </div>
-            <span className="text-xl font-bold">BlazePose Coach</span>
-          </a>
-          <nav className="hidden md:flex items-center gap-6 text-neutral-700">
-            <a href="/training" className="hover:text-neutral-900">Training</a>
-            <a href="/history" className="hover:text-neutral-900">History</a>
-            <a href="/profile" className="font-semibold text-neutral-900">Profile</a>
-          </nav>
+            </Link>
+
+            <Link
+              href="/dashboard"
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
+              prefetch
+            >
+              ⏪ Back to Dashboard
+            </Link>
+          </div>
+
+          <h1 className="text-xl font-bold text-neutral-900">Profile</h1>
         </div>
       </header>
 
-      {/* Content */}
+      {/* Main content */}
       <main className="px-6 pt-10 pb-24">
         <div className="max-w-4xl mx-auto">
           <div className="mb-6">
@@ -177,7 +177,9 @@ export default function ProfilePage() {
               Account
             </div>
             <h1 className="mt-3 text-4xl font-bold">Your profile</h1>
-            <p className="mt-2 text-neutral-600">Manage your avatar, username, and security.</p>
+            <p className="mt-2 text-neutral-600">
+              Manage your avatar, username, and security.
+            </p>
           </div>
 
           {/* Card */}
@@ -185,12 +187,16 @@ export default function ProfilePage() {
             <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-red-300/30 to-orange-300/30 blur-3xl" />
             <div className="relative rounded-3xl border border-red-100/80 bg-white/85 backdrop-blur-xl p-6 md:p-8 shadow-2xl shadow-red-500/10">
               <form onSubmit={onSave} className="space-y-8">
-                {/* Avatar + upload */}
+                {/* Avatar upload */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                   <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-red-600 to-orange-500 grid place-items-center text-2xl font-bold text-white shadow-lg shadow-red-500/30">
                     {avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      <img
+                        src={avatarUrl}
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <span>{username?.[0]?.toUpperCase() ?? "U"}</span>
                     )}
@@ -217,9 +223,11 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                {/* Email (read-only) */}
+                {/* Email */}
                 <div className="grid gap-2">
-                  <label className="text-sm font-medium text-neutral-700">Email</label>
+                  <label className="text-sm font-medium text-neutral-700">
+                    Email
+                  </label>
                   <input
                     type="email"
                     value={email}
@@ -230,7 +238,9 @@ export default function ProfilePage() {
 
                 {/* Username */}
                 <div className="grid gap-2">
-                  <label className="text-sm font-medium text-neutral-700">Username</label>
+                  <label className="text-sm font-medium text-neutral-700">
+                    Username
+                  </label>
                   <input
                     type="text"
                     value={username}

@@ -318,10 +318,10 @@ export default function DashboardPage() {
                   🎯 Start Training
                 </a>
                 <a
-                  href="/history"
+                  href="/progress"
                   className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                 >
-                  📊 View History
+                  📊 View progress
                 </a>
                 <a
                   href="/profile"
