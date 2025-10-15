@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import { audit } from "@/app/lib/audit";
 
 /* ----------------------------- Types ----------------------------- */
 type RecentViewRow = {
@@ -427,6 +428,7 @@ function UserBadge({
     </div>
   );
 }
+await audit("auth.logout", {});
 
 function KpiCard({
   title,
