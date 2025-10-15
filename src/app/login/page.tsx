@@ -10,7 +10,7 @@ const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
-
+  const resetJustNow = params.get("reset") === "1";
   const redirectTo = useMemo(
     () => params.get("redirectedFrom") || params.get("next") || "/dashboard",
     [params]
@@ -19,16 +19,31 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
+
+  // default unchecked; read last choice
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("rememberMe") === "true";
+  });
+
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [canResend, setCanResend] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
+  // Persist rememberMe immediately (the client reads it on each auth call)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rememberMe", rememberMe ? "true" : "false");
+    }
+  }, [rememberMe]);
+
+  // If already logged in, go to redirect
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
         router.replace(redirectTo);
         router.refresh();
       }
@@ -44,6 +59,9 @@ export default function LoginPage() {
     const cleanEmail = email.trim().toLowerCase();
     if (!isEmail(cleanEmail)) return setError("Please enter a valid email.");
     if (!pw) return setError("Password is required.");
+
+    // Make sure the client sees the latest rememberMe choice
+    localStorage.setItem("rememberMe", rememberMe ? "true" : "false");
 
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
@@ -66,6 +84,7 @@ export default function LoginPage() {
       return setError(error.message);
     }
 
+    // success
     router.replace(redirectTo);
     router.refresh();
   };
@@ -160,9 +179,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className={`${inputBase} ${
-                    email ? (isEmail(email) ? state.ok : state.bad) : state.neu
-                  }`}
+                  className={`${inputBase} ${email ? (isEmail(email) ? state.ok : state.bad) : state.neu}`}
                 />
               </div>
 
@@ -186,6 +203,22 @@ export default function LoginPage() {
                 />
               </div>
 
+              {/* Remember me */}
+              <label className="flex items-center gap-2 text-sm text-neutral-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded border-neutral-300"
+                />
+                Remember me on this device
+              </label>
+              {resetJustNow && (
+              <div className="mb-4 text-sm rounded-lg p-3 border text-emerald-700 bg-emerald-50 border-emerald-200">
+                Password changed successfully. Please sign in with your new password.
+              </div>
+          )}
+
               {canResend && (
                 <button
                   type="button"
@@ -196,6 +229,7 @@ export default function LoginPage() {
                   {resending ? "Resending..." : "Resend verification email"}
                 </button>
               )}
+
               <div className="mt-3 text-xs text-right text-neutral-500">
                 <Link href="/forgot-password" className="underline hover:text-neutral-900">
                   Forgot password?
@@ -209,8 +243,6 @@ export default function LoginPage() {
               >
                 {loading ? "Signing in..." : "Login"}
               </button>
-
-
 
               <p className="mt-3 text-xs text-center text-neutral-500">
                 Don’t have an account?{" "}

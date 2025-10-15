@@ -52,22 +52,16 @@ export default function TrainingPage() {
           {/* Left section: Icon + Back to Dashboard */}
           <div className="flex items-center gap-3">
             {/* BlazePose icon */}
-            <Link
-              href="/dashboard"
-              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 text-white text-xl shadow-lg shadow-red-500/30 hover:scale-[1.05] transition"
-              title="Dashboard"
-              prefetch
-            >
-              🥊
-            </Link>
-
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+          </a>
             {/* Back button */}
             <Link
               href="/dashboard"
               className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
               prefetch
             >
-              ⏪ Back to Dashboard
+             Back to Dashboard
             </Link>
           </div>
 

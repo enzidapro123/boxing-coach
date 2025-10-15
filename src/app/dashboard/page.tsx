@@ -18,7 +18,7 @@ type RecentViewRow = {
 type ProgressViewRow = {
   user_id: string;
   technique: string;
-  day: string; // yyyy-mm-dd
+  day: string; // yyyy-mm-dd (from view; left as-is)
   reps: number;
 };
 
@@ -40,7 +40,7 @@ const iconFor = (tech: string) => {
 };
 const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-/** Return UTC yyyy-mm-dd for any Date/string */
+/** Return UTC yyyy-mm-dd for any Date/string (kept for your existing views) */
 function dateKeyUTC(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   return new Date(
@@ -50,34 +50,26 @@ function dateKeyUTC(d: Date | string): string {
     .slice(0, 10);
 }
 
-/** Last n days in UTC keys (today included) */
-function lastNDatesUTC(n: number): string[] {
-  const out: string[] = [];
-  const now = new Date();
-  const todayUTC = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(todayUTC);
-    d.setUTCDate(todayUTC.getUTCDate() - i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
+/** Local yyyy-mm-dd for streak calculation (sessions per local day) */
+function dateKeyLocal(d: Date | string): string {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  const y = dt.getFullYear();
+  const m = dt.getMonth() + 1;
+  const day = dt.getDate();
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${y}-${pad(m)}-${pad(day)}`;
 }
 
-function computeStreak(progressDays: string[]): number {
-  // streak = consecutive UTC days (including today) with any reps
-  const set = new Set(progressDays);
+/** Streak = consecutive LOCAL days including today that have ≥1 session */
+function computeLocalStreakFromSessions(sessionDates: string[]): number {
+  const set = new Set(sessionDates.map(dateKeyLocal));
   let streak = 0;
-  const now = new Date();
-  const todayUTC = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
-  for (let i = 0; i < 120; i++) {
-    const d = new Date(todayUTC);
-    d.setUTCDate(todayUTC.getUTCDate() - i);
-    const iso = d.toISOString().slice(0, 10);
-    if (set.has(iso)) streak++;
+  const today = new Date();
+  for (let i = 0; i < 365; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = dateKeyLocal(d);
+    if (set.has(key)) streak++;
     else break;
   }
   return streak;
@@ -94,12 +86,15 @@ export default function DashboardPage() {
 
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
   const [progress30, setProgress30] = useState<ProgressViewRow[]>([]);
-  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
-    null
+  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(null);
+
+  // sessions for KPI (30d)
+  const [sessions30, setSessions30] = useState<{ id: string; started_at: string }[]>(
+    []
   );
 
-  // sessions for KPI + chart
-  const [sessions30, setSessions30] = useState<
+  // sessions for streak (local-day computation; last 120d to allow long streaks)
+  const [sessionsForStreak, setSessionsForStreak] = useState<
     { id: string; started_at: string }[]
   >([]);
 
@@ -131,43 +126,56 @@ export default function DashboardPage() {
           setAvatarUrl(profile?.avatar_url ?? null);
         }
 
-        // since 30d
+        // ranges
         const since30 = new Date();
         since30.setDate(since30.getDate() - 30);
 
-        const [recentRes, progRes, mostRes, sessRes] = await Promise.all([
-          supabase
-            .from("v_user_recent_sessions")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("started_at", { ascending: false })
-            .limit(5),
+        const since120 = new Date();
+        since120.setDate(since120.getDate() - 120);
 
-          supabase
-            .from("v_user_progress_30d")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("day", { ascending: true }),
+        const [recentRes, progRes, mostRes, sessRes, streakSessRes] =
+          await Promise.all([
+            supabase
+              .from("v_user_recent_sessions")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("started_at", { ascending: false })
+              .limit(5),
 
-          supabase
-            .from("v_user_most_trained_30d")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("reps_30d", { ascending: false })
-            .limit(1),
+            supabase
+              .from("v_user_progress_30d")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("day", { ascending: true }),
 
-          supabase
-            .from("training_sessions")
-            .select("id, started_at")
-            .eq("user_id", user.id)
-            .gte("started_at", since30.toISOString())
-            .order("started_at", { ascending: true }),
-        ]);
+            supabase
+              .from("v_user_most_trained_30d")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("reps_30d", { ascending: false })
+              .limit(1),
+
+            supabase
+              .from("training_sessions")
+              .select("id, started_at")
+              .eq("user_id", user.id)
+              .gte("started_at", since30.toISOString())
+              .order("started_at", { ascending: true }),
+
+            // extra fetch solely for streak (local-day based)
+            supabase
+              .from("training_sessions")
+              .select("id, started_at")
+              .eq("user_id", user.id)
+              .gte("started_at", since120.toISOString())
+              .order("started_at", { ascending: true }),
+          ]);
 
         if (recentRes.error) throw recentRes.error;
         if (progRes.error) throw progRes.error;
         if (mostRes.error) throw mostRes.error;
         if (sessRes.error) throw sessRes.error;
+        if (streakSessRes.error) throw streakSessRes.error;
 
         const rec = (recentRes.data ?? []) as RecentViewRow[];
         const prog = (progRes.data ?? []).map((r: any) => ({
@@ -176,10 +184,15 @@ export default function DashboardPage() {
           day: typeof r.day === "string" ? r.day : dateKeyUTC(r.day),
           reps: r.reps ?? 0,
         })) as ProgressViewRow[];
-        const mt = (
-          mostRes.data && mostRes.data.length > 0 ? mostRes.data[0] : null
-        ) as MostTrainedViewRow | null;
+        const mt = (mostRes.data && mostRes.data.length > 0
+          ? mostRes.data[0]
+          : null) as MostTrainedViewRow | null;
+
         const sess = (sessRes.data ?? []).map((s: any) => ({
+          id: s.id as string,
+          started_at: s.started_at as string,
+        }));
+        const streakSess = (streakSessRes.data ?? []).map((s: any) => ({
           id: s.id as string,
           started_at: s.started_at as string,
         }));
@@ -189,6 +202,7 @@ export default function DashboardPage() {
           setProgress30(prog);
           setMostTrained(mt);
           setSessions30(sess);
+          setSessionsForStreak(streakSess);
         }
       } catch (e: any) {
         if (!cancelled) setErr(e.message || "Error loading dashboard");
@@ -204,13 +218,18 @@ export default function DashboardPage() {
   }, [router]);
 
   /* --------------- Derived metrics --------------- */
+  // Current streak based on LOCAL days with any training session
   const streak = useMemo(
-    () => computeStreak(Array.from(new Set(progress30.map((r) => r.day)))),
-    [progress30]
+    () =>
+      computeLocalStreakFromSessions(
+        sessionsForStreak.map((s) => s.started_at).filter(Boolean) as string[]
+      ),
+    [sessionsForStreak]
   );
 
-  // Sessions KPI + daily chart (UTC bucket)
+  // Sessions KPI (30d)
   const sessions30Count = sessions30.length;
+
   /* ----------------------------- UI ----------------------------- */
   if (loading) {
     return (
@@ -250,10 +269,7 @@ export default function DashboardPage() {
       {/* Navbar */}
       <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a
-            href="/"
-            className="flex items-center gap-2 hover:opacity-80 transition"
-          >
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
             <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
           </a>
 
@@ -274,9 +290,7 @@ export default function DashboardPage() {
           <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-2 text-xs font-semibold text-red-700 mb-4">
             Dashboard
           </div>
-          <h2 className="text-4xl font-bold mb-2">
-            Welcome back, {userName} 👊
-          </h2>
+          <h2 className="text-4xl font-bold mb-2">Welcome back, {userName} 👊</h2>
           <p className="text-neutral-600">
             Here’s an overview of your recent training and progress.
           </p>
@@ -285,18 +299,12 @@ export default function DashboardPage() {
         {/* KPI Cards (streak moved up + sessions 30d) */}
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
           <KpiCard title="Current Streak" value={`${streak}`} icon="🔥" />
-          <KpiCard
-            title="Training Sessions (30d)"
-            value={sessions30Count}
-            icon="📅"
-          />
+          <KpiCard title="Training Sessions (30d)" value={sessions30Count} icon="📅" />
           <KpiCard
             title="Most Trained (30d)"
             value={
               mostTrained
-                ? `${pretty(mostTrained.technique)} · ${
-                    mostTrained.reps_30d
-                  } reps`
+                ? `${pretty(mostTrained.technique)} · ${mostTrained.reps_30d} reps`
                 : "—"
             }
             icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
@@ -348,9 +356,7 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">
-                            {iconFor(r.technique)}
-                          </span>
+                          <span className="text-2xl">{iconFor(r.technique)}</span>
                           <div>
                             <div className="font-semibold text-lg">
                               {pretty(r.technique)}
@@ -407,11 +413,7 @@ function UserBadge({
       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarUrl}
-            alt="Profile"
-            className="w-full h-full object-cover"
-          />
+          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
         ) : (
           <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
         )}
