@@ -147,21 +147,16 @@ export default function ProfilePage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           {/* Left section: icon + back button */}
           <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-red-600 to-orange-500 text-white text-xl shadow-lg shadow-red-500/30 hover:scale-[1.05] transition"
-              title="Dashboard"
-              prefetch
-            >
-              🥊
-            </Link>
+          <Link href="/" className="flex items-center hover:opacity-80 transition">
+            <img src="/logo.png" alt="Logo" className="h-11 w-auto" />
+          </Link>
 
             <Link
-              href="/dashboard"
+              href="/dashboard" 
               className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
               prefetch
             >
-              ⏪ Back to Dashboard
+              Back to Dashboard
             </Link>
           </div>
 
