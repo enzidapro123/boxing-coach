@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { drawBBoxAndLabel, drawKeypoints, drawSkeleton } from "../_pose/draw";
 import { supabase } from "../../lib/supabaseClient";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { useRouter } from "next/navigation";
 
 /* -------------------------------------------------- Types */
 type TechniqueName = "jab" | "cross" | "hook" | "uppercut" | "guard";
@@ -123,6 +124,7 @@ export default function PoseClient({ technique, stance }: Props) {
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
+  const router = useRouter();
 
   /* ---------- Punch/cross state */
   const lastRatio = useRef<{ left: number; right: number }>({
@@ -912,38 +914,40 @@ export default function PoseClient({ technique, stance }: Props) {
     loop,
   ]);
 
-  const stop = useCallback(async () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    setRunning(false);
-    setLoading(false);
-    sessionIdRef.current = null;
+const stop = useCallback(async () => {
+  if (rafRef.current) cancelAnimationFrame(rafRef.current);
+  rafRef.current = null;
+  setRunning(false);
+  setLoading(false);
 
-    (videoRef.current?.srcObject as MediaStream | null)
-      ?.getTracks()
-      .forEach((t) => t.stop());
-    try {
-      landmarkerRef.current?.close();
-    } catch {}
-    landmarkerRef.current = null;
+  // stop camera + landmarker
+  (videoRef.current?.srcObject as MediaStream | null)
+    ?.getTracks()
+    .forEach((t) => t.stop());
+  try { landmarkerRef.current?.close(); } catch {}
+  landmarkerRef.current = null;
 
-    if (sessionId && startedAtMs != null) {
-      await finishSupabaseSession(sessionId, reps, startedAtMs);
+  // finalize the session
+  const sid = sessionIdRef.current;
+  const started = startedAtMs;
+  const repCount = reps;
+
+  sessionIdRef.current = null;
+
+  try {
+    if (sid && started != null) {
+      await finishSupabaseSession(sid, repCount, started);
     }
-  }, [sessionId, startedAtMs, reps, finishSupabaseSession]);
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      try {
-        landmarkerRef.current?.close();
-      } catch {}
-      (videoRef.current?.srcObject as MediaStream | null)
-        ?.getTracks()
-        .forEach((t) => t.stop());
-      sessionIdRef.current = null;
-    };
-  }, []);
+  } finally {
+    // always route to summary after stopping
+    const qp = new URLSearchParams({
+      sid: sid ?? "",
+      technique,
+      reps: String(repCount ?? 0),
+    }).toString();
+    router.push(`/summary?${qp}`);
+  }
+}, [finishSupabaseSession, reps, startedAtMs, technique, router]);
 
   /* ---------------------------------- UI ---------------------------------- */
   return (
