@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import { audit } from "@/app/lib/audit";
 
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
@@ -69,6 +70,7 @@ export default function LoginPage() {
       password: pw,
     });
     setLoading(false);
+    await audit("auth.login", { method: "password" });
 
     if (error) {
       const msg = error.message.toLowerCase();

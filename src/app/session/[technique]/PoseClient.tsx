@@ -5,6 +5,7 @@ import { drawBBoxAndLabel, drawKeypoints, drawSkeleton } from "../_pose/draw";
 import { supabase } from "../../lib/supabaseClient";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import { useRouter } from "next/navigation";
+import { audit } from "@/app/lib/audit"; // make sure this exists
 
 /* -------------------------------------------------- Types */
 type TechniqueName = "jab" | "cross" | "hook" | "uppercut" | "guard";
@@ -892,6 +893,7 @@ export default function PoseClient({ technique, stance }: Props) {
         landmarkerRef.current.detectForVideo(video, performance.now());
       } catch {}
       const sid = await startSupabaseSession(technique);
+      await audit("session.start", { session_id: sid, technique });
       sessionIdRef.current = sid;
       setSessionId(sid);
       setStartedAtMs(Date.now());
@@ -904,6 +906,7 @@ export default function PoseClient({ technique, stance }: Props) {
       setRunning(false);
       setError("Failed to start. Check camera permissions and reload.");
     }
+
   }, [
     running,
     loading,
@@ -912,6 +915,7 @@ export default function PoseClient({ technique, stance }: Props) {
     startSupabaseSession,
     technique,
     loop,
+    
   ]);
 
 const stop = useCallback(async () => {
@@ -936,10 +940,26 @@ const stop = useCallback(async () => {
 
   try {
     if (sid && started != null) {
+      // persist finish data in training_sessions
       await finishSupabaseSession(sid, repCount, started);
+
+      // 🔎 AUDIT: log the UX event
+      if (!sid.startsWith("local-")) {
+        const durationSec = Math.max(0, Math.round((Date.now() - started) / 1000));
+        try {
+          await audit("session.finish", {
+            session_id: sid,
+            technique,
+            total_reps: repCount ?? 0,
+            duration_sec: durationSec,
+          });
+        } catch (e) {
+          console.warn("audit session.finish failed", e);
+        }
+      }
     }
   } finally {
-    // always route to summary after stopping
+    // if you still auto-route, keep this; otherwise remove
     const qp = new URLSearchParams({
       sid: sid ?? "",
       technique,

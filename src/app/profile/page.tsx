@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import { audit } from "@/app/lib/audit";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -66,6 +67,8 @@ export default function ProfilePage() {
       .from("users")
       .update({ username, avatar_url: avatarUrl })
       .eq("id", userId);
+
+    await audit("profile.update", { fields: ["username","avatar_url"] });
 
     setSaving(false);
     if (error) setErr(error.message);
