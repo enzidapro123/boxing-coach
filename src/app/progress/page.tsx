@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link"; // ← added
+import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
 
 type Technique = "jab" | "cross" | "hook" | "uppercut" | "guard" | string;
@@ -22,7 +22,7 @@ const iconFor = (tech: string) => {
   const t = (tech || "").toLowerCase();
   if (t === "jab") return "👊";
   if (t === "cross") return "💥";
-  if (t === "hook") return "🌟";
+  if (t === "hook") return "🌀";
   if (t === "uppercut") return "⚡";
   if (t === "guard") return "🛡️";
   return "🥊";
@@ -57,10 +57,8 @@ function derivedScore(r: SessionRow): number | null {
   const mins = minutes(r.duration_sec);
   if (!reps) return null;
   const rpm = reps / mins; // reps per minute
-
   // Map rpm to 0..100 (tunables)
   let score = Math.round(Math.min(100, Math.max(0, (rpm / 12) * 100)));
-
   // Light technique weighting (guard sessions usually low reps)
   if ((r.technique || "").toLowerCase() === "guard") {
     score = Math.min(100, Math.round(score * 0.8 + 20));
@@ -70,11 +68,11 @@ function derivedScore(r: SessionRow): number | null {
 
 function ratingLabel(score: number | null | undefined) {
   if (typeof score !== "number")
-    return { label: "Unrated", color: "text-gray-300" };
-  if (score >= 90) return { label: "Excellent", color: "text-emerald-400" };
-  if (score >= 75) return { label: "Good", color: "text-blue-400" };
-  if (score >= 60) return { label: "Fair", color: "text-amber-400" };
-  return { label: "Needs work", color: "text-rose-400" };
+    return { label: "Unrated", color: "text-neutral-400" };
+  if (score >= 90) return { label: "Excellent", color: "text-emerald-600" };
+  if (score >= 75) return { label: "Good", color: "text-blue-600" };
+  if (score >= 60) return { label: "Fair", color: "text-amber-600" };
+  return { label: "Needs work", color: "text-rose-600" };
 }
 
 /* ------------------------------ Page ------------------------------ */
@@ -226,36 +224,46 @@ export default function ProgressPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
+      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-700">
         Loading progress…
       </div>
     );
   }
   if (err) {
     return (
-      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
-        <div className="bg-white/5 border border-white/10 p-6 rounded-xl">
-          <div className="font-semibold mb-2">Error</div>
-          <div className="text-sm text-gray-300">{err}</div>
+      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-red-700 shadow">
+          {err}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
-      <header className="sticky top-0 z-40 bg-white/5 backdrop-blur-lg border-b border-white/10">
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+      {/* soft background orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/25 to-orange-400/25 blur-3xl" />
+        <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+      </div>
+
+      {/* Glassy header */}
+      <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* ← Back to Dashboard */}
             <Link
               href="/dashboard"
-              className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 rounded-lg text-sm font-semibold text-white border border-white/20 transition-all shadow-md"
+              className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 transition"
               prefetch
             >
-              ⏪ Dashboard
+              ← Back to dashboard
             </Link>
-            <h1 className="text-2xl font-bold">Progress & Drills</h1>
+            <div className="flex flex-col leading-tight">
+              <h1 className="text-xl font-bold">Progress &amp; Drills</h1>
+              <p className="text-xs text-neutral-600">
+                Track volume, tempo, and daily quality
+              </p>
+            </div>
           </div>
 
           {/* Range switcher */}
@@ -266,53 +274,39 @@ export default function ProgressPage() {
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* Summary (selected range) */}
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <CardStat
-            label={`Total reps (${rangeDays}d)`}
-            value={String(summary.totalReps)}
-          />
-          <CardStat
-            label={`Avg score (${rangeDays}d)`}
-            value={`${summary.avgScore}%`}
-          />
-          <CardStat
-            label={`Sessions (${rangeDays}d)`}
-            value={String(summary.sessionsCount)}
-          />
+          <CardStat label={`Total reps (${rangeDays}d)`} value={String(summary.totalReps)} />
+          <CardStat label={`Avg score (${rangeDays}d)`} value={`${summary.avgScore}%`} />
+          <CardStat label={`Sessions (${rangeDays}d)`} value={String(summary.sessionsCount)} />
         </section>
 
         {/* Accuracy Estimation Note */}
-        <section className="bg-blue-950/40 border border-blue-500/30 rounded-2xl p-6 text-sm text-gray-300">
-          <h2 className="text-lg font-semibold text-blue-300 mb-2">
-            ℹ️ How Accuracy is Estimated
-          </h2>
-          <p>
-            Your performance “accuracy” score is derived from{" "}
-            <span className="text-white font-semibold">
-              reps per minute (RPM)
-            </span>
-            —higher RPM reflects smoother tempo and consistency. Daily averages
-            combine all drills to show
-            <span className="text-white"> average RPM per day</span>.
-          </p>
+        <section className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-blue-50 to-sky-50 p-6">
+          <div className="absolute -inset-10 bg-gradient-to-br from-sky-200/20 to-blue-200/20 blur-3xl" />
+          <div className="relative">
+            <h2 className="text-lg font-semibold text-blue-700 mb-1">
+              ℹ️ How “Accuracy” is estimated
+            </h2>
+            <p className="text-sm text-neutral-700">
+              Your performance score is derived from{" "}
+              <span className="font-semibold">reps per minute (RPM)</span>.
+              Higher RPM reflects smoother tempo and consistency. Daily
+              averages combine all drills to show your{" "}
+              <span className="font-semibold">average RPM per day</span>.
+            </p>
+          </div>
         </section>
 
         {/* Day-over-day comparison */}
         {dayCompare && (
-          <section className="bg-white/5 border border-white/10 rounded-2xl p-6">
-            <h2 className="text-xl font-semibold mb-4">
-              Day-over-Day Comparison
-            </h2>
+          <section className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+            <h2 className="text-xl font-semibold mb-4">Day-over-day comparison</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <CompareBadge label="Reps" diff={dayCompare.repsDiff} unit="" />
-              <CompareBadge
-                label="Score"
-                diff={dayCompare.scoreDiff}
-                unit="%"
-              />
+              <CompareBadge label="Score" diff={dayCompare.scoreDiff} unit="%" />
               <CompareBadge label="Time" diff={dayCompare.minDiff} unit="m" />
             </div>
             {dayCompare.tips.length > 0 && (
-              <ul className="mt-6 list-disc pl-6 text-sm text-gray-300 space-y-1">
+              <ul className="mt-6 list-disc pl-6 text-sm text-neutral-700 space-y-1">
                 {dayCompare.tips.map((t, i) => (
                   <li key={i}>{t}</li>
                 ))}
@@ -323,24 +317,22 @@ export default function ProgressPage() {
 
         {/* History grouped by local day (filtered) */}
         <section className="space-y-6">
-          <h2 className="text-xl font-semibold">Drill Feedback History</h2>
+          <h2 className="text-xl font-semibold">Drill feedback history</h2>
           {byDay.length === 0 ? (
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-10 text-center text-gray-400">
+            <div className="rounded-2xl border border-neutral-200 bg-white/70 backdrop-blur p-10 text-center text-neutral-600">
               No sessions in the selected range.
             </div>
           ) : (
             byDay.map((d) => (
-              <div
+              <section
                 key={d.date}
-                className="bg-white/5 border border-white/10 rounded-2xl p-6"
+                className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-6 shadow-sm"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-lg font-semibold">{d.date}</div>
-                  <div className="text-sm text-gray-300">
+                  <div className="text-sm text-neutral-600">
                     {d.totalReps} reps · {d.totalMinutes}m ·{" "}
-                    {d.avgScore !== null
-                      ? `${d.avgScore}% avg score`
-                      : "unrated"}
+                    {d.avgScore !== null ? `${d.avgScore}% avg score` : "unrated"}
                   </div>
                 </div>
 
@@ -351,22 +343,17 @@ export default function ProgressPage() {
                     return (
                       <div
                         key={s.id}
-                        className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between"
+                        className="rounded-xl border border-neutral-200 bg-white px-4 py-3 flex items-center justify-between"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">
-                            {iconFor(s.technique)}
-                          </span>
+                          <span className="text-2xl">{iconFor(s.technique)}</span>
                           <div>
-                            <div className="font-semibold">
-                              {pretty(s.technique)}
-                            </div>
-                            <div className="text-xs text-gray-400">
+                            <div className="font-semibold">{pretty(s.technique)}</div>
+                            <div className="text-xs text-neutral-600">
                               {s.started_at
                                 ? new Date(s.started_at).toLocaleTimeString()
                                 : "—"}{" "}
-                              · {minutes(s.duration_sec)}m · {s.total_reps ?? 0}{" "}
-                              reps
+                              · {minutes(s.duration_sec)}m · {s.total_reps ?? 0} reps
                             </div>
                           </div>
                         </div>
@@ -377,7 +364,7 @@ export default function ProgressPage() {
                     );
                   })}
                 </div>
-              </div>
+              </section>
             ))
           )}
         </section>
@@ -389,12 +376,14 @@ export default function ProgressPage() {
 /* ------------------------- Small components ------------------------- */
 function CardStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-      <div className="text-sm text-gray-400">{label}</div>
-      <div className="text-3xl font-bold mt-1">{value}</div>
+    <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white/85 backdrop-blur-xl p-5 shadow-sm">
+      <div className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-gradient-to-br from-red-600 to-orange-500 opacity-10 blur-2xl" />
+      <div className="text-xs font-medium text-neutral-600">{label}</div>
+      <div className="text-3xl font-extrabold mt-1">{value}</div>
     </div>
   );
 }
+
 function CompareBadge({
   label,
   diff,
@@ -407,19 +396,19 @@ function CompareBadge({
   const up = diff > 0,
     same = diff === 0;
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-      <div className="text-sm text-gray-400">{label}</div>
+    <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+      <div className="text-sm text-neutral-600">{label}</div>
       <div className="mt-1 flex items-baseline gap-2">
         <span
           className={`text-2xl font-bold ${
-            same ? "text-gray-300" : up ? "text-emerald-400" : "text-rose-400"
+            same ? "text-neutral-500" : up ? "text-emerald-600" : "text-rose-600"
           }`}
         >
           {diff > 0 ? "+" : ""}
           {diff}
           {unit}
         </span>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-neutral-500">
           {up ? "Improved" : same ? "No change" : "Lower"}
         </span>
       </div>
@@ -435,9 +424,10 @@ function RangeSwitch({
   value: 1 | 7 | 30;
   onChange: (v: 1 | 7 | 30) => void;
 }) {
-  const base = "px-3 py-1.5 rounded-lg text-sm border transition";
-  const active = "bg-white/15 border-white/30 text-white";
-  const idle = "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10";
+  const base = "px-3 py-1.5 rounded-full text-sm border transition";
+  const active = "bg-neutral-900 text-white border-neutral-900";
+  const idle =
+    "bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50";
   return (
     <div className="inline-flex gap-2">
       <button
