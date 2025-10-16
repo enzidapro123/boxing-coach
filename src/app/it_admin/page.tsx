@@ -31,6 +31,20 @@ type Recent = {
   total_reps: number | null;
 };
 
+/* ---- Audit log type (shape from v_admin_audit_recent) ----
+  Suggested view columns:
+    id, occurred_at (timestamptz), actor (text/email/username),
+    action (text), target (text nullable), details (jsonb nullable)
+*/
+type AuditRow = {
+  id: string;
+  occurred_at: string | null;
+  actor: string | null;
+  action: string;
+  target?: string | null;
+  details?: any | null; // jsonb
+};
+
 export default function ItAdminPage() {
   const router = useRouter();
 
@@ -43,6 +57,10 @@ export default function ItAdminPage() {
   const [mix30, setMix30] = useState<Mix[]>([]);
   const [recent, setRecent] = useState<Recent[]>([]);
   const [totalUsers, setTotalUsers] = useState<number>(0);
+
+  // NEW: audit rows
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [auditErr, setAuditErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -65,7 +83,7 @@ export default function ItAdminPage() {
           return router.replace("/");
         }
 
-        // Load all admin views + total users count
+        // Load core admin views + total users count
         const [s30, d30, tu30, m30, rs, usersCount] = await Promise.all([
           supabase.from("v_admin_sessions_30d").select("*"),
           supabase.from("v_admin_daily_sessions_30d").select("*"),
@@ -87,6 +105,39 @@ export default function ItAdminPage() {
         setMix30((m30.data ?? []) as Mix[]);
         setRecent((rs.data ?? []) as Recent[]);
         setTotalUsers(usersCount.count ?? 0);
+
+        // Load AUDIT LOG (best-effort; don't fail the whole page)
+        // Preferred: a view like v_admin_audit_recent (already joined & normalized)
+        const ar = await supabase
+          .from("v_admin_audit_recent")
+          .select("*")
+          .order("occurred_at", { ascending: false })
+          .limit(100);
+
+        if (ar.error) {
+          // Fallback: point to your raw table if you don't have the view yet.
+          // Uncomment and adjust the columns if needed:
+          // const fall = await supabase
+          //   .from("audit_events")
+          //   .select("id, created_at, actor, action, target, details")
+          //   .order("created_at", { ascending: false })
+          //   .limit(100);
+          // if (fall.error) setAuditErr(fall.error.message);
+          // else
+          //   setAuditRows(
+          //     (fall.data || []).map((r: any) => ({
+          //       id: r.id,
+          //       occurred_at: r.created_at,
+          //       actor: r.actor ?? null,
+          //       action: r.action,
+          //       target: r.target ?? null,
+          //       details: r.details ?? null,
+          //     }))
+          //   );
+          setAuditErr(ar.error.message);
+        } else {
+          setAuditRows((ar.data ?? []) as AuditRow[]);
+        }
       } catch (e: any) {
         setErr(e.message || "Failed to load admin data");
       } finally {
@@ -138,29 +189,29 @@ export default function ItAdminPage() {
         <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
       </div>
 
- <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
-  <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-    {/* Left group: logo + title */}
-    <div className="flex items-center gap-3">
-      <a href="/" className="flex items-center hover:opacity-80 transition">
-        <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-      </a>
+      <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          {/* Left group: logo + title */}
+          <div className="flex items-center gap-3">
+            <a href="/" className="flex items-center hover:opacity-80 transition">
+              <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+            </a>
 
-      <div className="flex flex-col leading-tight">
-        <h1 className="text-xl font-bold">IT Admin</h1>
-        <p className="text-xs text-neutral-600">Last 30 days</p>
-      </div>
-    </div>
+            <div className="flex flex-col leading-tight">
+              <h1 className="text-xl font-bold">IT Admin</h1>
+              <p className="text-xs text-neutral-600">Last 30 days</p>
+            </div>
+          </div>
 
-    {/* Right button */}
-    <a
-      href="/dashboard"
-      className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 transition"
-    >
-      Back to app
-    </a>
-  </div>
-</header>
+          {/* Right button */}
+          <a
+            href="/dashboard"
+            className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 transition"
+          >
+            Back to app
+          </a>
+        </div>
+      </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* KPIs */}
@@ -213,7 +264,29 @@ export default function ItAdminPage() {
           />
         </Card>
 
-        {/* daily30 is loaded and ready if you add a chart later */}
+        {/* ---------------- AUDIT LOG (IT Admin: read-only) ---------------- */}
+        <Card title="Audit log (last 100 events)">
+          {auditErr && (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {auditErr} — check that the view <code>v_admin_audit_recent</code> exists or switch to your <code>audit_events</code> table.
+            </div>
+          )}
+          <Table
+            head={["When", "Actor", "Action", "Target", "Details"]}
+            rows={
+              auditRows.map((a) => [
+                a.occurred_at ? new Date(a.occurred_at).toLocaleString() : "—",
+                a.actor ?? "—",
+                <span key={`${a.id}-act`} className="font-medium">{a.action}</span>,
+                a.target ?? "—",
+                <span key={`${a.id}-d`} className="text-xs text-neutral-600 break-all">
+                  {a.details ? safeMiniJSON(a.details) : "—"}
+                </span>,
+              ])
+            }
+            empty="No audit events"
+          />
+        </Card>
       </main>
     </div>
   );
@@ -299,4 +372,15 @@ function Table({
 
 function Right({ children }: { children: React.ReactNode }) {
   return <span className="float-right font-semibold">{children}</span>;
+}
+
+/* Small: pretty-print compact JSON safely */
+function safeMiniJSON(val: unknown) {
+  try {
+    const s = JSON.stringify(val);
+    // trim long blobs while keeping key information visible
+    return s.length > 200 ? `${s.slice(0, 200)}…` : s;
+  } catch {
+    return String(val ?? "");
+  }
 }

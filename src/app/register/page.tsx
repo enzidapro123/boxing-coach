@@ -35,48 +35,62 @@ export default function RegisterPage() {
   const cfOk = cf && cf === pw;
   const canSubmit = emailValid && username.length >= 3 && pwOk && cfOk && agree && !loading;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAlert(null);
+// inside app/register/page.tsx
 
-    if (!canSubmit) return;
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setAlert(null);
 
-    setLoading(true);
-    try {
-      const consent_date = new Date().toISOString();
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
-        password: pw,
-        options: {
-          emailRedirectTo:
-            typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
-          data: { username, consent_given: true, consent_date },
+  if (!canSubmit) return;
+
+  setLoading(true);
+  try {
+    // only set consent flags if user actually checked the box
+    const consent_date = agree ? new Date().toISOString() : null;
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password: pw,
+      options: {
+        // IMPORTANT: tag the flow so callback knows this came from signup
+        emailRedirectTo:
+          typeof window !== "undefined"
+            ? `${window.location.origin}/auth/callback?type=signup`
+            : undefined,
+        // put what we need into user_metadata
+        data: {
+          username,
+          privacy_agreed: !!agree,
+          consent_date,              // optional extra; not strictly required
+          desired_username: username // (kept if you use it elsewhere)
         },
-      });
+      },
+    });
 
-      if (error) {
-        const msg =
-          /already|registered|exists/i.test(error.message)
-            ? "Email already registered. Try logging in or reset password."
-            : error.message;
-        return setAlert({ type: "error", text: msg });
-      }
-      
-      await audit("auth.register", {
-        method: "password",
-        email,
-        confirmed: Boolean(data.user?.email_confirmed_at),
-      });
-
-      setAlert({
-        type: "success",
-        text: "We sent a confirmation link to your email. Please verify to continue.",
-      });
-      router.push(`/check-email?email=${encodeURIComponent(email)}`);
-    } finally {
-      setLoading(false);
+    if (error) {
+      const msg = /already|registered|exists/i.test(error.message)
+        ? "Email already registered. Try logging in or reset password."
+        : error.message;
+      setAlert({ type: "error", text: msg });
+      return;
     }
-  };
+
+    await audit("auth.register", {
+      method: "password",
+      email,
+      confirmed: Boolean(data.user?.email_confirmed_at),
+    });
+
+    setAlert({
+      type: "success",
+      text: "We sent a confirmation link to your email. Please verify to continue.",
+    });
+    router.push(`/check-email?email=${encodeURIComponent(email)}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const inputBase =
     "w-full p-3 rounded-xl bg-white border placeholder-neutral-400 focus:outline-none focus:ring-2 transition text-neutral-900";

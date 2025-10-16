@@ -6,6 +6,8 @@ import { supabase } from "../lib/supabaseClient";
 import { audit } from "@/app/lib/audit";
 
 /* ----------------------------- Types ----------------------------- */
+type Role = "regular" | "it_admin" | "super_admin";
+
 type RecentViewRow = {
   user_id: string;
   session_id: string;
@@ -19,7 +21,7 @@ type RecentViewRow = {
 type ProgressViewRow = {
   user_id: string;
   technique: string;
-  day: string; // yyyy-mm-dd (from view; left as-is)
+  day: string; // yyyy-mm-dd
   reps: number;
 };
 
@@ -82,21 +84,21 @@ export default function DashboardPage() {
 
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [role, setRole] = useState<Role>("regular");
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
   const [progress30, setProgress30] = useState<ProgressViewRow[]>([]);
-  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
-    null
-  );
+  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(null);
 
   // sessions for KPI (30d)
-  const [sessions30, setSessions30] = useState<
-    { id: string; started_at: string }[]
-  >([]);
+  const [sessions30, setSessions30] = useState<{ id: string; started_at: string }[]>(
+    []
+  );
 
-  // sessions for streak (local-day computation; last 120d to allow long streaks)
+  // sessions for streak (local-day computation; last 120d)
   const [sessionsForStreak, setSessionsForStreak] = useState<
     { id: string; started_at: string }[]
   >([]);
@@ -117,16 +119,19 @@ export default function DashboardPage() {
           return;
         }
 
-        // profile
-        const { data: profile } = await supabase
+        // profile + role (add user_role to the select)
+        const { data: profile, error: profileErr } = await supabase
           .from("users")
-          .select("username, avatar_url")
+          .select("username, avatar_url, user_role")
           .eq("id", user.id)
           .maybeSingle();
+
+        if (profileErr) throw profileErr;
 
         if (!cancelled) {
           setUserName(profile?.username ?? user.email ?? "User");
           setAvatarUrl(profile?.avatar_url ?? null);
+          setRole((profile?.user_role as Role) ?? "regular");
         }
 
         // ranges
@@ -165,7 +170,6 @@ export default function DashboardPage() {
               .gte("started_at", since30.toISOString())
               .order("started_at", { ascending: true }),
 
-            // extra fetch solely for streak (local-day based)
             supabase
               .from("training_sessions")
               .select("id, started_at")
@@ -221,7 +225,6 @@ export default function DashboardPage() {
   }, [router]);
 
   /* --------------- Derived metrics --------------- */
-  // Current streak based on LOCAL days with any training session
   const streak = useMemo(
     () =>
       computeLocalStreakFromSessions(
@@ -230,7 +233,6 @@ export default function DashboardPage() {
     [sessionsForStreak]
   );
 
-  // Sessions KPI (30d)
   const sessions30Count = sessions30.length;
 
   /* ----------------------------- UI ----------------------------- */
@@ -284,9 +286,7 @@ export default function DashboardPage() {
             avatarUrl={avatarUrl}
             onSignOut={async () => {
               await audit("auth.logout", {});
-
               await supabase.auth.signOut();
-
               router.replace("/login");
             }}
           />
@@ -305,21 +305,15 @@ export default function DashboardPage() {
           </p>
         </section>
 
-        {/* KPI Cards (streak moved up + sessions 30d) */}
+        {/* KPI Cards */}
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
           <KpiCard title="Current Streak" value={`${streak}`} icon="🔥" />
-          <KpiCard
-            title="Training Sessions (30d)"
-            value={sessions30Count}
-            icon="📅"
-          />
+          <KpiCard title="Training Sessions (30d)" value={sessions30Count} icon="📅" />
           <KpiCard
             title="Most Trained (30d)"
             value={
               mostTrained
-                ? `${pretty(mostTrained.technique)} · ${
-                    mostTrained.reps_30d
-                  } reps`
+                ? `${pretty(mostTrained.technique)} · ${mostTrained.reps_30d} reps`
                 : "—"
             }
             icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
@@ -352,6 +346,24 @@ export default function DashboardPage() {
                 >
                   ⚙️ Profile Settings
                 </a>
+
+                {/* Admin-only quick links */}
+                {(role === "it_admin" || role === "super_admin") && (
+                  <a
+                    href="/it_admin"
+                    className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
+                  >
+                    🛠 IT Admin
+                  </a>
+                )}
+                {role === "super_admin" && (
+                  <a
+                    href="/super_admin"
+                    className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
+                  >
+                    👑 Super Admin
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -371,9 +383,7 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">
-                            {iconFor(r.technique)}
-                          </span>
+                          <span className="text-2xl">{iconFor(r.technique)}</span>
                           <div>
                             <div className="font-semibold text-lg">
                               {pretty(r.technique)}
@@ -430,11 +440,7 @@ function UserBadge({
       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarUrl}
-            alt="Profile"
-            className="w-full h-full object-cover"
-          />
+          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
         ) : (
           <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
         )}

@@ -64,9 +64,9 @@ export default function LandingPage() {
           subject: "Contact: BlazePose Coach",
           body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
         });
-        window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
+        window.location.href = `mailto:rjbdelpilar@gmail.com?${params.toString()}`;
         setSentMsg(
-          "Opening your email client… If nothing opens, email support@yourapp.com."
+          "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com"
         );
       } else {
         setSentMsg("Thanks! Your message has been sent.");
@@ -78,9 +78,9 @@ export default function LandingPage() {
         subject: "Contact: BlazePose Coach",
         body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
       });
-      window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
+      window.location.href = `mailto:rjbdelpilar@gmail.com?${params.toString()}`;
       setSentMsg(
-        "Opening your email client… If nothing opens, email support@yourapp.com."
+        "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com."
       );
     } finally {
       setSending(false);
