@@ -87,12 +87,14 @@ export default function DashboardPage() {
 
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
   const [progress30, setProgress30] = useState<ProgressViewRow[]>([]);
-  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(null);
+  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
+    null
+  );
 
   // sessions for KPI (30d)
-  const [sessions30, setSessions30] = useState<{ id: string; started_at: string }[]>(
-    []
-  );
+  const [sessions30, setSessions30] = useState<
+    { id: string; started_at: string }[]
+  >([]);
 
   // sessions for streak (local-day computation; last 120d to allow long streaks)
   const [sessionsForStreak, setSessionsForStreak] = useState<
@@ -185,9 +187,9 @@ export default function DashboardPage() {
           day: typeof r.day === "string" ? r.day : dateKeyUTC(r.day),
           reps: r.reps ?? 0,
         })) as ProgressViewRow[];
-        const mt = (mostRes.data && mostRes.data.length > 0
-          ? mostRes.data[0]
-          : null) as MostTrainedViewRow | null;
+        const mt = (
+          mostRes.data && mostRes.data.length > 0 ? mostRes.data[0] : null
+        ) as MostTrainedViewRow | null;
 
         const sess = (sessRes.data ?? []).map((s: any) => ({
           id: s.id as string,
@@ -270,22 +272,24 @@ export default function DashboardPage() {
       {/* Navbar */}
       <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+          <a
+            href="/"
+            className="flex items-center gap-2 hover:opacity-80 transition"
+          >
             <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
           </a>
 
-      <UserBadge
-        userName={userName}
-        avatarUrl={avatarUrl}
-        onSignOut={async () => {
-          await audit("auth.logout", {});
+          <UserBadge
+            userName={userName}
+            avatarUrl={avatarUrl}
+            onSignOut={async () => {
+              await audit("auth.logout", {});
 
-          await supabase.auth.signOut();
+              await supabase.auth.signOut();
 
-          router.replace("/login");
-        }}
-      />
-      
+              router.replace("/login");
+            }}
+          />
         </div>
       </header>
 
@@ -295,7 +299,7 @@ export default function DashboardPage() {
           <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-2 text-xs font-semibold text-red-700 mb-4">
             Dashboard
           </div>
-          <h2 className="text-4xl font-bold mb-2">Welcome back, {userName} 👊</h2>
+          <h2 className="text-4xl font-bold mb-2">Welcome , {userName} 👊</h2>
           <p className="text-neutral-600">
             Here’s an overview of your recent training and progress.
           </p>
@@ -304,12 +308,18 @@ export default function DashboardPage() {
         {/* KPI Cards (streak moved up + sessions 30d) */}
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
           <KpiCard title="Current Streak" value={`${streak}`} icon="🔥" />
-          <KpiCard title="Training Sessions (30d)" value={sessions30Count} icon="📅" />
+          <KpiCard
+            title="Training Sessions (30d)"
+            value={sessions30Count}
+            icon="📅"
+          />
           <KpiCard
             title="Most Trained (30d)"
             value={
               mostTrained
-                ? `${pretty(mostTrained.technique)} · ${mostTrained.reps_30d} reps`
+                ? `${pretty(mostTrained.technique)} · ${
+                    mostTrained.reps_30d
+                  } reps`
                 : "—"
             }
             icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
@@ -361,7 +371,9 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{iconFor(r.technique)}</span>
+                          <span className="text-2xl">
+                            {iconFor(r.technique)}
+                          </span>
                           <div>
                             <div className="font-semibold text-lg">
                               {pretty(r.technique)}
@@ -418,7 +430,11 @@ function UserBadge({
       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+          <img
+            src={avatarUrl}
+            alt="Profile"
+            className="w-full h-full object-cover"
+          />
         ) : (
           <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
         )}

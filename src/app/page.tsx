@@ -1,5 +1,8 @@
+// src/app/page.tsx (LandingPage)
 "use client";
 import { useState } from "react";
+import Modal from "@/app/components/modal";
+import { TermsContent, PrivacyContent } from "@/app/components/legal";
 
 export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -7,8 +10,21 @@ export default function LandingPage() {
   const [sentMsg, setSentMsg] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const NavLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href} className="text-neutral-600 hover:text-neutral-900 transition font-medium">
+  // NEW: modal state for Privacy & Terms
+  const [openPrivacy, setOpenPrivacy] = useState(false);
+  const [openTerms, setOpenTerms] = useState(false);
+
+  const NavLink = ({
+    href,
+    children,
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => (
+    <a
+      href={href}
+      className="text-neutral-600 hover:text-neutral-900 transition font-medium"
+    >
       {children}
     </a>
   );
@@ -49,7 +65,9 @@ export default function LandingPage() {
           body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
         });
         window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
-        setSentMsg("Opening your email client… If nothing opens, email support@yourapp.com.");
+        setSentMsg(
+          "Opening your email client… If nothing opens, email support@yourapp.com."
+        );
       } else {
         setSentMsg("Thanks! Your message has been sent.");
         form.reset();
@@ -61,7 +79,9 @@ export default function LandingPage() {
         body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
       });
       window.location.href = `mailto:support@yourapp.com?${params.toString()}`;
-      setSentMsg("Opening your email client… If nothing opens, email support@yourapp.com.");
+      setSentMsg(
+        "Opening your email client… If nothing opens, email support@yourapp.com."
+      );
     } finally {
       setSending(false);
     }
@@ -78,7 +98,10 @@ export default function LandingPage() {
       {/* NAVBAR */}
       <nav className="fixed top-0 z-50 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/50">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
+          <a
+            href="/"
+            className="flex items-center gap-2 hover:opacity-80 transition"
+          >
             <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
           </a>
 
@@ -101,11 +124,26 @@ export default function LandingPage() {
             className="md:hidden rounded-lg border border-neutral-200 bg-white p-2 hover:bg-neutral-50 transition"
             aria-label="Toggle menu"
           >
-            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              className="h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               {menuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               )}
             </svg>
           </button>
@@ -127,6 +165,21 @@ export default function LandingPage() {
                 {label}
               </a>
             ))}
+
+            {/* Mobile: open modals for Privacy / Terms */}
+            <button
+              onClick={() => setOpenPrivacy(true)}
+              className="mt-3 block w-full text-left px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
+            >
+              Privacy
+            </button>
+            <button
+              onClick={() => setOpenTerms(true)}
+              className="mt-1 block w-full text-left px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
+            >
+              Terms
+            </button>
+
             <a
               href="/register"
               className="mt-3 block text-center rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg"
@@ -152,14 +205,16 @@ export default function LandingPage() {
 
             <h1 className="text-5xl md:text-7xl font-bold leading-tight tracking-tight">
               <span className="bg-gradient-to-r from-red-600 via-orange-500 to-red-600 bg-clip-text text-transparent">
-                AI-powered
+                KnockTech
               </span>
-              <br />boxing coaching <br />
+              <br />
+              boxing coaching <br />
               <span className="text-neutral-500">in your browser.</span>
             </h1>
 
             <p className="mt-6 text-lg text-neutral-600 max-w-xl leading-relaxed">
-              Real-time BlazePose feedback to perfect your jab, cross, hook, and guard—no installs, just your camera.
+              Real-time BlazePose feedback to perfect your jab, cross, hook, and
+              guard—no installs, just your camera.
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
@@ -168,8 +223,18 @@ export default function LandingPage() {
                 className="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-base font-semibold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105"
               >
                 Start free
-                <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                <svg
+                  className="h-5 w-5 transition-transform group-hover:translate-x-1"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
                 </svg>
               </a>
               <a
@@ -195,22 +260,46 @@ export default function LandingPage() {
       </section>
 
       {/* FEATURES */}
-      <section id="features" className="px-6 py-24 border-t border-neutral-200/50">
+      <section
+        id="features"
+        className="px-6 py-24 border-t border-neutral-200/50"
+      >
         <div className="max-w-7xl mx-auto text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
-            What you <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">get</span>
+            What you{" "}
+            <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">
+              get
+            </span>
           </h2>
-          <p className="mt-4 text-lg text-neutral-600">Core tools that help you improve.</p>
+          <p className="mt-4 text-lg text-neutral-600">
+            Core tools that help you improve.
+          </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-7xl mx-auto">
           {[
-            ["🎯", "Real-time feedback", "Instant cues on form, angle, and timing."],
-            ["📊", "Progress tracking", "See accuracy, sessions, and training time."],
-            ["🥊", "Technique library", "Jabs, crosses, hooks, and combos."],
-            ["🎥", "Session review", "Rewatch your movements for correction."],
-            ["⚡", "AI analysis", "BlazePose tracks keypoints in real time."],
-            ["🏆", "Skill progression", "Level up as your form improves."],
+            [
+              "🎯",
+              "Real-time feedback",
+              "Instant feedback if your technique form is wrong.",
+            ],
+            [
+              "📊",
+              "Progress tracking",
+              "See accuracy, sessions, and training time.",
+            ],
+            ["🥊", "Technique library", "Jabs, crosses, hooks, and guard."],
+            ["🎥", "Session review", "review your summary session."],
+            [
+              "⚡",
+              "realtime tracking",
+              "BlazePose tracks keypoints in real time.",
+            ],
+            [
+              "🏆",
+              "Skill progression",
+              "Level up as your progression imrpove.",
+            ],
           ].map(([icon, title, desc]) => (
             <div
               key={title}
@@ -227,28 +316,57 @@ export default function LandingPage() {
       </section>
 
       {/* HOW IT WORKS */}
-      <section id="how-it-works" className="px-6 py-24 bg-gradient-to-b from-neutral-50 to-white">
+      <section
+        id="how-it-works"
+        className="px-6 py-24 bg-gradient-to-b from-neutral-50 to-white"
+      >
         <div className="max-w-7xl mx-auto text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
-            How it <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">works</span>
+            How it{" "}
+            <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">
+              works
+            </span>
           </h2>
-          <p className="mt-4 text-lg text-neutral-600">Three steps. That’s it.</p>
+          <p className="mt-4 text-lg text-neutral-600">
+            Three steps. That’s it.
+          </p>
         </div>
 
         <div className="grid gap-8 md:grid-cols-3 max-w-7xl mx-auto">
           {[
-            { step: "01", title: "Pick a technique", desc: "Choose jab, cross, hook, uppercut, or a combo.", color: "from-red-600 to-red-500" },
-            { step: "02", title: "Train live", desc: "Turn on your webcam—get corrections in real time.", color: "from-orange-600 to-orange-500" },
-            { step: "03", title: "Improve fast", desc: "Track results and refine your form each session.", color: "from-red-500 to-orange-500" },
+            {
+              step: "01",
+              title: "Pick a technique",
+              desc: "Choose jab, cross, hook, uppercut, or guard",
+              color: "from-red-600 to-red-500",
+            },
+            {
+              step: "02",
+              title: "Train live",
+              desc: "Turn on your webcam—get corrections in real time.",
+              color: "from-orange-600 to-orange-500",
+            },
+            {
+              step: "03",
+              title: "Improve fast",
+              desc: "Track results and perfect your form.",
+              color: "from-red-500 to-orange-500",
+            },
           ].map((s) => (
             <div key={s.step} className="relative group">
-              <div className={`absolute -inset-1 bg-gradient-to-r ${s.color} opacity-20 group-hover:opacity-40 rounded-3xl blur transition`} />
+              <div
+                className={`absolute -inset-1 bg-gradient-to-r ${s.color} opacity-20 group-hover:opacity-40 rounded-3xl blur transition`}
+              />
               <div className="relative rounded-2xl border border-red-100/80 bg-white/80 backdrop-blur p-10 shadow-xl shadow-red-500/10 group-hover:shadow-2xl group-hover:shadow-red-500/20 transition-all">
-                <div className={`mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color} text-white text-xl font-bold shadow-lg shadow-red-500/40`}>
+                <div
+                  className={`mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${s.color} text-white text-xl font-bold shadow-lg shadow-red-500/40`}
+                >
                   {s.step}
                 </div>
                 <h3 className="text-2xl font-bold">{s.title}</h3>
-                <p className="mt-3 text-neutral-600 leading-relaxed">{s.desc}</p>
+                <p className="mt-3 text-neutral-600 leading-relaxed">
+                  {s.desc}
+                </p>
               </div>
             </div>
           ))}
@@ -256,26 +374,55 @@ export default function LandingPage() {
       </section>
 
       {/* CONTACT */}
-      <section id="contact" className="px-6 py-24 border-y border-neutral-200/60">
+      <section
+        id="contact"
+        className="px-6 py-24 border-y border-neutral-200/60"
+      >
         <div className="mx-auto max-w-7xl grid gap-10 lg:grid-cols-2 items-center">
           <div>
             <h2 className="text-4xl font-bold md:text-5xl tracking-tight">
-              Contact <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">us</span>
+              Contact{" "}
+              <span className="bg-gradient-to-r from-red-600 to-orange-500 bg-clip-text text-transparent">
+                us
+              </span>
             </h2>
             <p className="mt-4 text-lg text-neutral-600">
               Questions or feedback? We’d love to hear from you.
             </p>
 
             <div className="mt-6 space-y-2 text-neutral-700">
-              <p>📧 <a className="text-neutral-900" href="mailto:rjbdelpilar@gmail.com">rjbdelpilar@gmail.com</a></p>
-                            <p>📧 <a className="text-neutral-900" href="mailto:rjbdelpilar@gmail.com">rjbdelpilar@gmail.com</a></p>
-
+              <p>
+                📧{" "}
+                <a
+                  className="text-neutral-900"
+                  href="mailto:rjbdelpilar@gmail.com"
+                >
+                  rjbdelpilar@gmail.com
+                </a>
+              </p>
+              <p>
+                📧{" "}
+                <a
+                  className="text-neutral-900"
+                  href="mailto:enzidapro@gmail.com"
+                >
+                  enzidapro@gmail.com
+                </a>
+              </p>
             </div>
           </div>
 
-          <form onSubmit={onContactSubmit} className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-6 sm:p-8 shadow-2xl shadow-red-500/20 space-y-4">
+          <form
+            onSubmit={onContactSubmit}
+            className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-6 sm:p-8 shadow-2xl shadow-red-500/20 space-y-4"
+          >
             <div>
-              <label htmlFor="name" className="block text-sm text-neutral-700 mb-1">Name</label>
+              <label
+                htmlFor="name"
+                className="block text-sm text-neutral-700 mb-1"
+              >
+                Name
+              </label>
               <input
                 id="name"
                 name="name"
@@ -285,7 +432,12 @@ export default function LandingPage() {
               />
             </div>
             <div>
-              <label htmlFor="email" className="block text-sm text-neutral-700 mb-1">Email</label>
+              <label
+                htmlFor="email"
+                className="block text-sm text-neutral-700 mb-1"
+              >
+                Email
+              </label>
               <input
                 id="email"
                 name="email"
@@ -296,7 +448,12 @@ export default function LandingPage() {
               />
             </div>
             <div>
-              <label htmlFor="message" className="block text-sm text-neutral-700 mb-1">Message</label>
+              <label
+                htmlFor="message"
+                className="block text-sm text-neutral-700 mb-1"
+              >
+                Message
+              </label>
               <textarea
                 id="message"
                 name="message"
@@ -337,30 +494,74 @@ export default function LandingPage() {
             start?
           </span>
         </h2>
-        <p className="mt-4 text-xl text-neutral-600">Train with AI feedback—right in your browser.</p>
+        <p className="mt-4 text-xl text-neutral-600">
+          Train with knocktech—right in your browser.
+        </p>
         <a
           href="/register"
           className="mt-10 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-10 py-5 text-lg font-semibold text-white shadow-2xl shadow-red-500/40 hover:scale-105 transition"
         >
           Get started free
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 7l5 5m0 0l-5 5m5-5H6"
+            />
           </svg>
         </a>
-        <p className="mt-6 text-sm text-neutral-500">No credit card required</p>
+        <p className="mt-6 text-sm text-neutral-500"></p>
       </section>
 
       {/* FOOTER */}
       <footer className="px-6 py-12 bg-gradient-to-b from-white to-neutral-50 text-center text-sm text-neutral-600">
-        <img src="/logo.png" alt="Logo" className="h-10 w-auto mx-auto mb-4 opacity-90" />
+        <img
+          src="/logo.png"
+          alt="Logo"
+          className="h-10 w-auto mx-auto mb-4 opacity-90"
+        />
         <div className="flex flex-wrap justify-center gap-6">
           <NavLink href="#features">Features</NavLink>
           <NavLink href="#how-it-works">How it works</NavLink>
           <NavLink href="#contact">Contact</NavLink>
-          <NavLink href="/privacy">Privacy</NavLink>
-          <NavLink href="/terms">Terms</NavLink>
+
+          {/* Open modals instead of routing */}
+          <button
+            onClick={() => setOpenPrivacy(true)}
+            className="text-neutral-600 hover:text-neutral-900 transition font-medium"
+          >
+            Privacy
+          </button>
+          <button
+            onClick={() => setOpenTerms(true)}
+            className="text-neutral-600 hover:text-neutral-900 transition font-medium"
+          >
+            Terms
+          </button>
         </div>
       </footer>
+
+      {/* POPUPS */}
+      <Modal
+        open={openPrivacy}
+        onClose={() => setOpenPrivacy(false)}
+        title="Privacy Policy"
+      >
+        <PrivacyContent />
+      </Modal>
+      <Modal
+        open={openTerms}
+        onClose={() => setOpenTerms(false)}
+        title="Terms & Conditions"
+      >
+        <TermsContent />
+      </Modal>
     </div>
   );
 }
