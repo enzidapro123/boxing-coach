@@ -58,44 +58,24 @@ export default function SuperAdminPage() {
   if (!ok) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
-      {/* soft gradient accents */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-orange-400/25 to-red-400/25 blur-3xl" />
-        <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-red-400/25 to-orange-400/25 blur-3xl" />
-      </div>
-
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900">
+      {/* Glassy header */}
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <a
-              href="/"
-              className="flex items-center hover:opacity-80 transition"
-            >
+            <a href="/" className="flex items-center hover:opacity-80 transition">
               <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
             </a>
             <div className="flex flex-col leading-tight">
               <h1 className="text-xl font-bold">Super Admin</h1>
+              <p className="text-xs text-neutral-600">Organization controls</p>
             </div>
           </div>
 
           <nav className="flex gap-2">
-            <Tab
-              label="Users"
-              active={tab === "users"}
-              onClick={() => setTab("users")}
-            />
-            <Tab
-              label="Sessions"
-              active={tab === "sessions"}
-              onClick={() => setTab("sessions")}
-            />
-            <Tab
-              label="Reports"
-              active={tab === "reports"}
-              onClick={() => setTab("reports")}
-            />
+            <Tab label="Users" active={tab === "users"} onClick={() => setTab("users")} />
+            <Tab label="Sessions" active={tab === "sessions"} onClick={() => setTab("sessions")} />
+            <Tab label="Reports" active={tab === "reports"} onClick={() => setTab("reports")} />
           </nav>
         </div>
       </header>
@@ -114,92 +94,146 @@ function UsersPanel() {
   const [rows, setRows] = useState<UserRow[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
-  const [banner, setBanner] = useState<{
-    kind: "ok" | "err";
-    text: string;
-  } | null>(null);
-  const [edits, setEdits] = useState<
-    Record<string, { username: string; user_role: Role }>
-  >({});
+  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // local editable state per row (username + role)
+  const [edits, setEdits] = useState<Record<string, { username: string; user_role: Role }>>({});
 
   const load = async () => {
     setLoading(true);
+    setBanner(null);
     const { data, error } = await supabase
       .from("users")
       .select("id,email,created_at,username,user_role")
       .order("created_at", { ascending: false });
     setLoading(false);
-    if (error) return setBanner({ kind: "err", text: error.message });
-    const list = (data ?? []) as UserRow[];
-    setRows(list);
-    const map: Record<string, { username: string; user_role: Role }> = {};
-    list.forEach(
-      (u) =>
-        (map[u.id] = { username: u.username ?? "", user_role: u.user_role })
-    );
-    setEdits(map);
+    if (error) setBanner({ kind: "err", text: error.message });
+    else {
+      const list = (data ?? []) as UserRow[];
+      setRows(list);
+      const map: Record<string, { username: string; user_role: Role }> = {};
+      list.forEach((u) => (map[u.id] = { username: u.username ?? "", user_role: u.user_role }));
+      setEdits(map);
+    }
   };
   useEffect(() => {
     load();
   }, []);
 
-  const onChange = (
-    id: string,
-    patch: Partial<{ username: string; user_role: Role }>
-  ) => setEdits((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
+  const filtered = rows.filter((r) => {
+    const t = q.trim().toLowerCase();
+    if (!t) return true;
+    return (
+      r.email?.toLowerCase().includes(t) ||
+      r.username?.toLowerCase().includes(t) ||
+      r.user_role?.toLowerCase().includes(t)
+    );
+  });
+
+  const onChange = (id: string, patch: Partial<{ username: string; user_role: Role }>) =>
+    setEdits((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
 
   const saveRow = async (u: UserRow) => {
     const e = edits[u.id];
     if (!e) return;
-    const changed =
-      e.username !== (u.username ?? "") || e.user_role !== u.user_role;
+
+    const prevUsername = u.username ?? "";
+    const prevRole = u.user_role;
+    const changed = e.username !== prevUsername || e.user_role !== prevRole;
     if (!changed) return;
-    const { error } = await supabase.from("users").update(e).eq("id", u.id);
-    if (error) return setBanner({ kind: "err", text: error.message });
-    await audit("admin.user.save", { user_id: u.id, changes: e });
+
+    setBanner(null);
+    const { error } = await supabase
+      .from("users")
+      .update({ username: e.username, user_role: e.user_role })
+      .eq("id", u.id);
+
+    if (error) {
+      setBanner({ kind: "err", text: error.message });
+      return;
+    }
+
+    // Audit changes individually (best-effort)
+    try {
+      if (e.user_role !== prevRole) {
+        await audit("admin.user.role_change", {
+          user_id: u.id,
+          from: prevRole,
+          to: e.user_role,
+        });
+      }
+      if (e.username !== prevUsername) {
+        await audit("admin.user.username_change", {
+          user_id: u.id,
+          from: prevUsername,
+          to: e.username,
+        });
+      }
+    } catch {}
+
     setBanner({ kind: "ok", text: "Saved." });
-    load();
+    await load();
   };
 
   const resetPassword = async (u: UserRow) => {
     if (!u.email) return;
+    setBanner(null);
     const { error } = await supabase.auth.resetPasswordForEmail(u.email, {
       redirectTo: `${location.origin}/reset-password`,
     });
-    if (error) setBanner({ kind: "err", text: error.message });
-    else {
-      await audit("admin.user.reset_password", {
-        user_id: u.id,
-        email: u.email,
-      });
-      setBanner({ kind: "ok", text: `Reset email sent to ${u.email}` });
+    if (!error) {
+      try {
+        await audit("admin.user.reset_password", { user_id: u.id, email: u.email });
+      } catch {}
     }
+    setBanner(
+      error
+        ? { kind: "err", text: error.message }
+        : { kind: "ok", text: `Password reset email sent to ${u.email}.` }
+    );
   };
 
-  const deleteUser = async (user_id: string) => {
-    if (!confirm("Delete this user permanently?")) return;
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+// inside UsersPanel -> deleteUser
+const deleteUser = async (user_id: string) => {
+  if (!confirm("Delete this user COMPLETELY (app data + auth)? This cannot be undone.")) return;
+
+  setBanner(null);
+  try {
+    // get the current access token
+    const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? "";
+
     const res = await fetch("/api/admin/delete-user", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // <-- Send the token explicitly
         Authorization: `Bearer ${token}`,
       },
+      credentials: "include",   // fine to keep; token is what matters now
+      cache: "no-store",
       body: JSON.stringify({ user_id }),
     });
-    const payload = await res.json();
-    if (!res.ok || payload.error)
-      return setBanner({
-        kind: "err",
-        text: payload.error || "Delete failed.",
-      });
-    await audit("admin.user.delete", { user_id });
+
+    const ct = res.headers.get("content-type") || "";
+    const payload = ct.includes("application/json")
+      ? await res.json()
+      : { error: await res.text() };
+
+    if (!res.ok || payload?.error) {
+      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
+      return;
+    }
+
+    try { await audit("admin.user.delete", { user_id }); } catch {}
     setBanner({ kind: "ok", text: "User deleted." });
-    load();
-  };
+    await load();
+  } catch (e: any) {
+    setBanner({ kind: "err", text: e?.message || "Delete failed." });
+  }
+};
+
+
 
   return (
     <Card title="Users">
@@ -210,14 +244,13 @@ function UsersPanel() {
           placeholder="Search email / username / role…"
           className="w-72 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
         />
-        <button
-          onClick={load}
-          className="ml-auto rounded-full border border-neutral-200 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
-        >
+        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
           Refresh
         </button>
       </div>
+
       {banner && <Banner kind={banner.kind} text={banner.text} />}
+
       {loading ? (
         <TableLoading />
       ) : (
@@ -227,50 +260,54 @@ function UsersPanel() {
             "Username",
             "Role",
             "Created",
-            <Right key="a">Actions</Right>,
+            <span key="a" className="float-right">
+              Actions
+            </span>,
           ]}
-          rows={rows
-            .filter((u) =>
-              [u.email, u.username, u.user_role].some((f) =>
-                f?.toLowerCase().includes(q.trim().toLowerCase())
-              )
-            )
-            .map((u) => [
-              u.email,
-              <input
-                key="un"
-                value={edits[u.id]?.username ?? ""}
-                onChange={(e) => onChange(u.id, { username: e.target.value })}
-                className="rounded border border-neutral-200 bg-white px-2 py-1"
-              />,
-              <select
-                key="role"
-                value={edits[u.id]?.user_role ?? u.user_role}
-                onChange={(e) =>
-                  onChange(u.id, { user_role: e.target.value as Role })
+          rows={filtered.map((u) => [
+            u.email,
+            <input
+              key="un"
+              value={edits[u.id]?.username ?? ""}
+              onChange={(e) => onChange(u.id, { username: e.target.value })}
+              className="rounded border border-neutral-200 bg-white px-2 py-1"
+            />,
+            <select
+              key="role"
+              className="rounded border border-neutral-200 bg-white px-2 py-1"
+              value={edits[u.id]?.user_role ?? u.user_role}
+              onChange={(e) => onChange(u.id, { user_role: e.target.value as Role })}
+            >
+              <option value="regular">regular</option>
+              <option value="it_admin">it_admin</option>
+              <option value="super_admin">super_admin</option>
+            </select>,
+            u.created_at ? new Date(u.created_at).toLocaleString() : "—",
+            <div key="act" className="flex gap-2 justify-end">
+              <button
+                onClick={() => saveRow(u)}
+                className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm"
+                disabled={
+                  !edits[u.id] ||
+                  (edits[u.id].username === (u.username ?? "") && edits[u.id].user_role === u.user_role)
                 }
-                className="rounded border border-neutral-200 bg-white px-2 py-1"
               >
-                <option value="regular">regular</option>
-                <option value="it_admin">it_admin</option>
-                <option value="super_admin">super_admin</option>
-              </select>,
-              u.created_at ? new Date(u.created_at).toLocaleString() : "—",
-              <div key="act" className="flex gap-2 justify-end">
-                <button onClick={() => saveRow(u)} className="btn">
-                  Save
-                </button>
-                <button onClick={() => resetPassword(u)} className="btn">
-                  Reset
-                </button>
-                <button
-                  onClick={() => deleteUser(u.id)}
-                  className="btn text-red-600"
-                >
-                  Delete
-                </button>
-              </div>,
-            ])}
+                Save
+              </button>
+              <button
+                onClick={() => resetPassword(u)}
+                className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm"
+              >
+                Reset password
+              </button>
+              <button
+                onClick={() => deleteUser(u.id)}
+                className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm text-red-600"
+              >
+                Delete
+              </button>
+            </div>,
+          ])}
           empty="No users."
         />
       )}
@@ -281,21 +318,25 @@ function UsersPanel() {
 /* ===================== SESSIONS ===================== */
 function SessionsPanel() {
   const [rows, setRows] = useState<SessionRow[]>([]);
-  const [q, setQ] = useState("");
   const [tech, setTech] = useState("");
+  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setBanner(null);
     const since = new Date();
     since.setDate(since.getDate() - 30);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("v_admin_sessions_30d")
       .select("*")
       .gte("started_at", since.toISOString())
-      .order("started_at", { ascending: false });
-    setRows((data ?? []) as SessionRow[]);
+      .order("started_at", { ascending: false })
+      .limit(200);
     setLoading(false);
+    if (error) setBanner({ kind: "err", text: error.message });
+    else setRows((data ?? []) as SessionRow[]);
   };
   useEffect(() => {
     load();
@@ -307,9 +348,57 @@ function SessionsPanel() {
     if (!t) return true;
     return (
       (r.username ?? "").toLowerCase().includes(t) ||
-      (r.email ?? "").toLowerCase().includes(t)
+      (r.email ?? "").toLowerCase().includes(t) ||
+      r.technique.toLowerCase().includes(t)
     );
   });
+
+const deleteSession = async (session_id: string) => {
+  if (!confirm("Delete this session? (Reps will also be removed)")) return;
+
+  setBanner(null);
+
+  try {
+    // Get an access token to prove who is calling the API
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      setBanner({ kind: "err", text: "Not signed in." });
+      return;
+    }
+
+    const res = await fetch("/api/admin/delete-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,     // <— important
+      },
+      cache: "no-store",
+      body: JSON.stringify({ session_id }),
+    });
+
+    const ct = res.headers.get("content-type") || "";
+    const payload = ct.includes("application/json") ? await res.json() : { error: await res.text() };
+
+    if (!res.ok || payload?.error) {
+      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
+      return;
+    }
+
+    try { await audit("admin.session.delete", { session_id }); } catch {}
+
+    setBanner({ kind: "ok", text: "Session deleted." });
+    await load();
+  } catch (e: any) {
+    setBanner({ kind: "err", text: e?.message || "Delete failed." });
+  }
+};
+
+
+  const techniques = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.technique.toLowerCase()))),
+    [rows]
+  );
 
   return (
     <Card title="Sessions (last 30 days)">
@@ -320,7 +409,7 @@ function SessionsPanel() {
           onChange={(e) => setTech(e.target.value)}
         >
           <option value="">All techniques</option>
-          {[...new Set(rows.map((r) => r.technique))].map((t) => (
+          {techniques.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
@@ -332,13 +421,13 @@ function SessionsPanel() {
           onChange={(e) => setQ(e.target.value)}
           className="w-64 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
         />
-        <button
-          onClick={load}
-          className="ml-auto rounded-full border border-neutral-200 bg-white px-3 py-2 text-sm hover:bg-neutral-50"
-        >
+        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
           Refresh
         </button>
       </div>
+
+      {banner && <Banner kind={banner.kind} text={banner.text} />}
+
       {loading ? (
         <TableLoading />
       ) : (
@@ -348,14 +437,25 @@ function SessionsPanel() {
             "User",
             "Technique",
             <Right key="r1">Reps</Right>,
-            <Right key="r2">Duration</Right>,
+            <Right key="r2">Duration (s)</Right>,
+            <Right key="r3">Actions</Right>,
           ]}
           rows={filtered.map((s) => [
             s.started_at ? new Date(s.started_at).toLocaleString() : "—",
-            s.username ?? s.email ?? "—",
-            s.technique,
+            s.username ?? s.email ?? s.user_id ?? "—",
+            <span key="t" className="capitalize">
+              {s.technique}
+            </span>,
             <Right key="reps">{s.total_reps ?? 0}</Right>,
             <Right key="dur">{s.duration_sec ?? 0}</Right>,
+            <Right key="act">
+              <button
+                onClick={() => deleteSession(s.id)}
+                className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm text-red-600"
+              >
+                Delete
+              </button>
+            </Right>,
           ])}
           empty="No sessions."
         />
@@ -370,29 +470,54 @@ function ReportsPanel() {
   const [active30, setActive30] = useState(0);
   const [sessions30, setSessions30] = useState(0);
   const [reps30, setReps30] = useState(0);
+  const [mix, setMix] = useState<Mix[]>([]);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [usersCount, sessions] = await Promise.all([
+      setErr(null);
+      const [usersCount, sessions, mixRes] = await Promise.all([
         supabase.from("users").select("id", { count: "exact", head: true }),
         supabase.from("v_admin_sessions_30d").select("*"),
+        supabase.from("v_admin_technique_mix_30d").select("*"),
       ]);
+      if (usersCount.error) return setErr(usersCount.error.message);
+      if (sessions.error) return setErr(sessions.error.message);
+      if (mixRes.error) return setErr(mixRes.error.message);
+
       const srows = (sessions.data ?? []) as SessionRow[];
       setTot(usersCount.count ?? 0);
       setSessions30(srows.length);
       setActive30(new Set(srows.map((r) => r.user_id).filter(Boolean)).size);
       setReps30(srows.reduce((a, b) => a + (b.total_reps ?? 0), 0));
+      setMix((mixRes.data ?? []) as Mix[]);
     })();
   }, []);
 
   return (
     <section className="space-y-6">
+      {err && <Banner kind="err" text={err} />}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Kpi title="Total users" value={tot} />
-        <Kpi title="Active (30d)" value={active30} />
+        <Kpi title="Total users (all-time)" value={tot} />
+        <Kpi title="Active users (30d)" value={active30} />
         <Kpi title="Sessions (30d)" value={sessions30} />
-        <Kpi title="Reps (30d)" value={reps30} />
+        <Kpi title="Total reps (30d)" value={reps30} />
       </div>
+
+      <Card title="Technique mix (30d)">
+        <Table
+          head={["Technique", <Right key="s">Sessions</Right>, <Right key="r">Reps</Right>]}
+          rows={mix.map((m) => [
+            <span key="t" className="capitalize">
+              {m.technique}
+            </span>,
+            <Right key="s">{m.sessions}</Right>,
+            <Right key="r">{m.reps}</Right>,
+          ])}
+          empty="No data."
+        />
+      </Card>
     </section>
   );
 }
@@ -400,24 +525,16 @@ function ReportsPanel() {
 /* ---------------- Small UI helpers ---------------- */
 function ScreenLoading() {
   return (
-    <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-600">
+    <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-600">
       Loading…
     </div>
   );
 }
-function Card({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-4 shadow-sm">
       <div className="px-2 pb-3 pt-1 font-semibold">{title}</div>
-      <div className="rounded-xl border border-neutral-100 bg-white/70 p-3">
-        {children}
-      </div>
+      <div className="rounded-xl border border-neutral-100 bg-white/70 p-3">{children}</div>
     </section>
   );
 }
@@ -427,20 +544,14 @@ function Table({
   empty,
 }: {
   head: (string | React.ReactNode)[];
-  rows: React.ReactNode[][];
+  rows: (React.ReactNode[])[];
   empty: string;
 }) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead className="bg-neutral-50/70 text-neutral-600">
-          <tr>
-            {head.map((h, i) => (
-              <th key={i} className="p-3 text-left">
-                {h}
-              </th>
-            ))}
-          </tr>
+          <tr>{head.map((h, i) => <th key={i} className="p-3 text-left">{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.length ? (
@@ -473,11 +584,7 @@ function Banner({ kind, text }: { kind: "ok" | "err"; text: string }) {
     kind === "ok"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
       : "bg-red-50 border-red-200 text-red-700";
-  return (
-    <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${cls}`}>
-      {text}
-    </div>
-  );
+  return <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${cls}`}>{text}</div>;
 }
 function Kpi({ title, value }: { title: string; value: number }) {
   return (
@@ -487,22 +594,12 @@ function Kpi({ title, value }: { title: string; value: number }) {
     </div>
   );
 }
-function Tab({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+function Tab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={`px-3 py-1.5 rounded-full text-sm border transition ${
-        active
-          ? "bg-neutral-900 text-white border-neutral-900"
-          : "bg-white border-neutral-200 hover:bg-neutral-50"
+        active ? "bg-neutral-900 text-white border-neutral-900" : "bg-white border-neutral-200 hover:bg-neutral-50"
       }`}
     >
       {label}
@@ -512,5 +609,3 @@ function Tab({
 function Right({ children }: { children: React.ReactNode }) {
   return <span className="float-right">{children}</span>;
 }
-const btn =
-  "rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm hover:bg-neutral-50 transition";
