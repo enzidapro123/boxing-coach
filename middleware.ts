@@ -6,16 +6,9 @@ import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
-  // Always create the client and refresh cookies for every request,
-  // including API routes. This keeps the auth cookie in sync.
-  const supabase = createMiddlewareClient({ req, res });
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
   const pathname = req.nextUrl.pathname;
 
-  // Pages that never require auth (don’t redirect on these)
+  // Pages that should never trigger auth checks
   const publicRoutes = [
     "/",
     "/features",
@@ -29,17 +22,24 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Pages that DO require auth (API routes aren’t redirected here)
-  const protectedPages = ["/dashboard", "/training", "/history", "/profile", "/super_admin", "/it_admin"];
+  // Only guard these
+  const protectedRoutes = ["/dashboard", "/training", "/history", "/profile"];
+  const needsAuth = protectedRoutes.some((p) => pathname.startsWith(p));
+  if (!needsAuth) return res;
 
-  if (protectedPages.some((p) => pathname.startsWith(p)) && !session) {
+  const supabase = createMiddlewareClient({ req, res });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    // send them to /login and remember where they came from
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirectedFrom", pathname);
     return NextResponse.redirect(url);
   }
 
-  // Let everything else (including /api/*) pass through with refreshed cookies
   return res;
 }
 
