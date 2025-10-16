@@ -274,14 +274,18 @@ export default function DashboardPage() {
             <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
           </a>
 
-          <UserBadge
-            userName={userName}
-            avatarUrl={avatarUrl}
-            onSignOut={async () => {
-              await supabase.auth.signOut();
-              router.replace("/login");
-            }}
-          />
+      <UserBadge
+        userName={userName}
+        avatarUrl={avatarUrl}
+        onSignOut={async () => {
+          await audit("auth.logout", {});
+
+          await supabase.auth.signOut();
+
+          router.replace("/login");
+        }}
+      />
+      
         </div>
       </header>
 
@@ -428,7 +432,6 @@ function UserBadge({
     </div>
   );
 }
-await audit("auth.logout", {});
 
 function KpiCard({
   title,
