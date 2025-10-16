@@ -55,7 +55,7 @@ const NAMES = [
 
 /* -------------------------------------------------- Helpers */
 function syncCanvasToCSS(canvas: HTMLCanvasElement) {
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const dpr = Math.max(1, (window as any).devicePixelRatio || 1);
   const rect = canvas.getBoundingClientRect();
   const w = Math.floor(rect.width * dpr);
   const h = Math.floor(rect.height * dpr);
@@ -144,7 +144,7 @@ export default function PoseClient({ technique, stance }: Props) {
     right: { ratio: number; elbow: number; align: number } | null;
   }>({ left: null, right: null });
 
-  /* ---------- Hook state */
+  /* ---------- Hook state (with side-face contact rule for both arms) */
   const hookLastLat = useRef<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -162,14 +162,20 @@ export default function PoseClient({ technique, stance }: Props) {
       elbow: number;
       align: number;
       reach: number;
+      yAlign: number;
     } | null;
     right: {
       lateral: number;
       elbow: number;
       align: number;
       reach: number;
+      yAlign: number;
     } | null;
   }>({ left: null, right: null });
+  const hookContacted = useRef<{ left: boolean; right: boolean }>({
+    left: false,
+    right: false,
+  });
 
   /* ---------- Uppercut (+ smoothing) */
   const upLastRise = useRef<{ left: number; right: number }>({
@@ -535,98 +541,202 @@ export default function PoseClient({ technique, stance }: Props) {
     lastRatio.current[active] = ratio;
   }
 
-  /* ----------------------------- Hook ------------------------------------- */
+  /* ----------------------------- Hook (both arms; side-face contact OR kinematics) ----- */
   function processHook(kps: KP[]) {
     if (!kps.length) return;
-    const L = evalArm(kps, "left");
-    const R = evalArm(kps, "right");
-    const active: Arm = L.lateral >= R.lateral ? "left" : "right";
-    const m = active === "left" ? L : R;
 
-    const lateral = m.lateral;
-    const reach = m.extension;
-    const was = hookPhase.current[active];
-    const prevLat = hookLastLat.current[active] || 0;
+    const k = kpMap(kps);
 
-    const START_LAT = 0.6;
-    const PEAK_MIN_LAT = 0.9;
-    const DROP_FRAC = 0.12;
-    const ELBOW_MIN = 70;
-    const ELBOW_MAX = 120;
-    const ALIGN_Y_MAX = 0.25;
-    const REACH_MAX = 1.4;
+    // Face landmarks and halves split by the nose X
+    const faceKeys = [
+      "left_eye_inner",
+      "left_eye",
+      "left_eye_outer",
+      "right_eye_inner",
+      "right_eye",
+      "right_eye_outer",
+      "mouth_left",
+      "mouth_right",
+      "nose",
+    ] as const;
+    const facePts = faceKeys.map((n) => k[n as string]).filter(Boolean) as KP[];
+    const nose = k["nose"];
 
-    if (was === "idle" && lateral > START_LAT && lateral > prevLat) {
-      hookPhase.current[active] = "swinging";
-      hookPeak.current[active] = {
-        lateral,
-        elbow: m.elbow,
-        align: m.alignY,
-        reach,
-      };
+    const leftFaceHalf =
+      nose && facePts.length
+        ? facePts.filter((p) => p.x <= nose.x)
+        : facePts.filter(
+            (p) => p.name?.startsWith("left") || p.name === "nose"
+          );
+    const rightFaceHalf =
+      nose && facePts.length
+        ? facePts.filter((p) => p.x >= nose.x)
+        : facePts.filter(
+            (p) => p.name?.startsWith("right") || p.name === "nose"
+          );
+
+    // Estimate face width for contact radius
+    const le = k["left_eye"],
+      re = k["right_eye"];
+    const ml = k["mouth_left"],
+      mr = k["mouth_right"];
+    let faceWidth = NaN;
+    if (le && re) faceWidth = dist(le, re);
+    else if (ml && mr) faceWidth = dist(ml, mr);
+    else if (facePts.length >= 2) {
+      const xs = facePts.map((p) => p.x);
+      faceWidth = Math.max(...xs) - Math.min(...xs);
     }
 
-    if (was === "swinging") {
-      if (
-        hookPeak.current[active] &&
-        lateral > hookPeak.current[active]!.lateral
-      ) {
-        hookPeak.current[active] = {
+    // helper to process one arm independently
+    const doArm = (arm: Arm) => {
+      const m = evalArm(kps, arm);
+      const prevLat = hookLastLat.current[arm] || 0;
+      const lateral = m.lateral;
+      const wasArm = hookPhase.current[arm];
+
+      // thresholds
+      const START_LAT = 0.55;
+      const PEAK_MIN_LAT = 0.95;
+      const DROP_FRAC = 0.12;
+      const ELBOW_MIN = 75;
+      const ELBOW_MAX = 115;
+      const ALIGN_Y_MAX = 0.28;
+      const REACH_MAX = 1.25;
+      const Y_ALIGN =
+        Math.abs((m.w?.y ?? 0) - (m.s?.y ?? 0)) / (m.bodyScale || 1);
+
+      // 4 hand points for this arm
+      const handPts = [
+        k[`${arm}_wrist`],
+        k[`${arm}_index`],
+        k[`${arm}_thumb`],
+        k[`${arm}_pinky`],
+      ].filter(Boolean) as KP[];
+
+      // side of the face this arm should contact
+      const sidePts = arm === "left" ? leftFaceHalf : rightFaceHalf;
+
+      // contact radius scales with body/face size
+      const S = m.bodyScale || 1;
+      const CONTACT_R = Math.max(0.18 * S, 0.6 * (faceWidth || S));
+
+      const minDistToSide =
+        sidePts.length && handPts.length
+          ? Math.min(...handPts.flatMap((h) => sidePts.map((f) => dist(h, f))))
+          : Infinity;
+      const contactOk =
+        Number.isFinite(minDistToSide) && minDistToSide <= CONTACT_R;
+
+      // start swing
+      if (wasArm === "idle" && lateral > START_LAT && lateral > prevLat) {
+        hookPhase.current[arm] = "swinging";
+        hookContacted.current[arm] = false;
+        hookPeak.current[arm] = {
           lateral,
           elbow: m.elbow,
           align: m.alignY,
-          reach,
+          reach: m.extension,
+          yAlign: Y_ALIGN,
         };
       }
-      const p = hookPeak.current[active]!;
-      if (p && lateral < p.lateral * (1 - DROP_FRAC)) {
-        const elbowOk = p.elbow >= ELBOW_MIN && p.elbow <= ELBOW_MAX;
-        const alignOk = p.align <= ALIGN_Y_MAX;
-        const latOk = p.lateral >= PEAK_MIN_LAT;
-        const notCross = p.reach <= REACH_MAX;
-        if (elbowOk && alignOk && latOk && notCross) {
-          setReps((r) => r + 1);
-          pushLog({ kind: "ok", text: `Correct hook (${active} arm)` });
-          {
-            const sid = sessionIdRef.current;
-            if (sid && !sid.startsWith("local-")) {
-              supabase
-                .from("session_reps")
-                .insert({ session_id: sid })
-                .then(({ error }) => {
-                  if (error)
-                    pushLog({
-                      kind: "warn",
-                      text: `Save failed: ${error.message}`,
-                    });
-                });
-            }
-          }
-        } else {
-          const tips = [
-            elbowOk ? null : "bend elbow ~90°",
-            alignOk ? null : "keep wrist level with shoulder",
-            latOk ? null : "bring hook more around (lateral)",
-            notCross ? null : "avoid overextending straight",
-          ]
-            .filter(Boolean)
-            .join("; ");
-          pushLog({
-            kind: "warn",
-            text: `Adjust your hook (${active}): ${tips}`,
-          });
-        }
-        hookPhase.current[active] = "idle";
-        hookPeak.current[active] = null;
-      }
-    }
 
-    hookLastLat.current[active] = lateral;
+      if (hookPhase.current[arm] === "swinging") {
+        // update peak
+        if (hookPeak.current[arm] && lateral > hookPeak.current[arm]!.lateral) {
+          hookPeak.current[arm] = {
+            lateral,
+            elbow: m.elbow,
+            align: m.alignY,
+            reach: m.extension,
+            yAlign: Y_ALIGN,
+          };
+        }
+
+        // If contact happens during swing → immediate rep
+        if (contactOk && !hookContacted.current[arm]) {
+          hookContacted.current[arm] = true;
+          setReps((r) => r + 1);
+          pushLog({
+            kind: "ok",
+            text: `Correct hook (${arm} arm) — good job`,
+          });
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => {
+                if (error)
+                  pushLog({
+                    kind: "warn",
+                    text: `Save failed: ${error.message}`,
+                  });
+              });
+          }
+          // reset for next rep
+          hookPhase.current[arm] = "idle";
+          hookPeak.current[arm] = null;
+        } else {
+          // else: when retreating, validate via kinematics
+          const p = hookPeak.current[arm]!;
+          if (p && lateral < p.lateral * (1 - DROP_FRAC)) {
+            const elbowOk = p.elbow >= ELBOW_MIN && p.elbow <= ELBOW_MAX;
+            const alignOk = p.align <= ALIGN_Y_MAX;
+            const latOk = p.lateral >= PEAK_MIN_LAT;
+            const notCross = p.reach <= REACH_MAX;
+            const shoulderHeightOk = p.yAlign <= 0.3;
+
+            if (elbowOk && alignOk && latOk && notCross && shoulderHeightOk) {
+              setReps((r) => r + 1);
+              pushLog({ kind: "ok", text: `Correct hook (${arm} arm)` });
+              const sid = sessionIdRef.current;
+              if (sid && !sid.startsWith("local-")) {
+                supabase
+                  .from("session_reps")
+                  .insert({ session_id: sid })
+                  .then(({ error }) => {
+                    if (error)
+                      pushLog({
+                        kind: "warn",
+                        text: `Save failed: ${error.message}`,
+                      });
+                  });
+              }
+            } else {
+              const tips = [
+                elbowOk ? null : "bend elbow ~90°",
+                alignOk ? null : "keep wrist level with shoulder",
+                latOk ? null : "wrap it more around (lateral)",
+                notCross ? null : "don’t overextend straight",
+                shoulderHeightOk ? null : "keep fist at shoulder height",
+              ]
+                .filter(Boolean)
+                .join("; ");
+              pushLog({
+                kind: "warn",
+                text: `Adjust your hook (${arm}): ${tips}`,
+              });
+            }
+            hookPhase.current[arm] = "idle";
+            hookPeak.current[arm] = null;
+          }
+        }
+      }
+
+      hookLastLat.current[arm] = lateral;
+    };
+
+    // process both arms every frame
+    doArm("left");
+    doArm("right");
   }
 
-  /* --------------------------- Uppercut (improved) ------------------------ */
+  /* --------------------------- Uppercut (improved + eye contact) ---------- */
   function processUppercut(kps: KP[]) {
     if (!kps.length) return;
+
+    const k = kpMap(kps);
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
     const active: Arm = L.rise >= R.rise ? "left" : "right";
@@ -654,6 +764,46 @@ export default function PoseClient({ technique, stance }: Props) {
     const startCondition =
       (emaCurr > START_RISE || vel > VEL_MIN) && emaCurr > prevRise;
 
+    // 👀 Eye-contact rule (4 hand dots vs eyes)
+    const eyes = [
+      "left_eye",
+      "right_eye",
+      "left_eye_inner",
+      "right_eye_inner",
+      "left_eye_outer",
+      "right_eye_outer",
+    ]
+      .map((n) => k[n])
+      .filter(Boolean) as KP[];
+    const handPts = [
+      k[`${active}_wrist`],
+      k[`${active}_index`],
+      k[`${active}_thumb`],
+      k[`${active}_pinky`],
+    ].filter(Boolean) as KP[];
+
+    let faceWidth = NaN;
+    const le = k["left_eye"],
+      re = k["right_eye"];
+    const ml = k["mouth_left"],
+      mr = k["mouth_right"];
+    if (le && re) faceWidth = dist(le, re);
+    else if (ml && mr) faceWidth = dist(ml, mr);
+    else if (eyes.length >= 2) {
+      const xs = eyes.map((p) => p.x);
+      faceWidth = Math.max(...xs) - Math.min(...xs);
+    }
+    const S = m.bodyScale || 1;
+    const CONTACT_R = Math.max(0.18 * S, 0.6 * (faceWidth || S));
+
+    const minDistToEyes = (pts: KP[]) =>
+      Math.min(...pts.flatMap((p) => eyes.map((e) => dist(p, e))));
+    const eyeContact =
+      eyes.length >= 2 && handPts.length >= 2
+        ? Number.isFinite(minDistToEyes(handPts)) &&
+          minDistToEyes(handPts) <= CONTACT_R
+        : false;
+
     if (was === "idle" && startCondition) {
       upPhase.current[active] = "rising";
       upPeak.current[active] = {
@@ -679,23 +829,27 @@ export default function PoseClient({ technique, stance }: Props) {
         const vertical = p.lateral <= LATERAL_MAX;
         const riseOk = p.rise >= PEAK_MIN_R;
         const notCross = p.reach <= REACH_MAX;
-        if (elbowOk && vertical && riseOk && notCross) {
+
+        if ((elbowOk && vertical && riseOk && notCross) || eyeContact) {
           setReps((r) => r + 1);
-          pushLog({ kind: "ok", text: `Correct uppercut (${active} arm)` });
-          {
-            const sid = sessionIdRef.current;
-            if (sid && !sid.startsWith("local-")) {
-              supabase
-                .from("session_reps")
-                .insert({ session_id: sid })
-                .then(({ error }) => {
-                  if (error)
-                    pushLog({
-                      kind: "warn",
-                      text: `Save failed: ${error.message}`,
-                    });
-                });
-            }
+          pushLog({
+            kind: "ok",
+            text: `Correct uppercut (${active} arm)${
+              eyeContact ? " — eye contact" : ""
+            }`,
+          });
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => {
+                if (error)
+                  pushLog({
+                    kind: "warn",
+                    text: `Save failed: ${error.message}`,
+                  });
+              });
           }
         } else {
           const tips = [
@@ -719,7 +873,6 @@ export default function PoseClient({ technique, stance }: Props) {
     upLastRise.current[active] = emaCurr;
   }
 
-  /* ----------------------------- Guard (hold + hints) --------------------- */
   /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
   function processGuard(kps: KP[]) {
     if (!kps.length) return;
@@ -906,7 +1059,6 @@ export default function PoseClient({ technique, stance }: Props) {
       setRunning(false);
       setError("Failed to start. Check camera permissions and reload.");
     }
-
   }, [
     running,
     loading,
@@ -915,59 +1067,60 @@ export default function PoseClient({ technique, stance }: Props) {
     startSupabaseSession,
     technique,
     loop,
-    
   ]);
 
-const stop = useCallback(async () => {
-  if (rafRef.current) cancelAnimationFrame(rafRef.current);
-  rafRef.current = null;
-  setRunning(false);
-  setLoading(false);
+  const stop = useCallback(async () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    setRunning(false);
+    setLoading(false);
 
-  // stop camera + landmarker
-  (videoRef.current?.srcObject as MediaStream | null)
-    ?.getTracks()
-    .forEach((t) => t.stop());
-  try { landmarkerRef.current?.close(); } catch {}
-  landmarkerRef.current = null;
+    // stop camera + landmarker
+    (videoRef.current?.srcObject as MediaStream | null)
+      ?.getTracks()
+      .forEach((t) => t.stop());
+    try {
+      landmarkerRef.current?.close();
+    } catch {}
+    landmarkerRef.current = null;
 
-  // finalize the session
-  const sid = sessionIdRef.current;
-  const started = startedAtMs;
-  const repCount = reps;
+    // finalize the session
+    const sid = sessionIdRef.current;
+    const started = startedAtMs;
+    const repCount = reps;
 
-  sessionIdRef.current = null;
+    sessionIdRef.current = null;
 
-  try {
-    if (sid && started != null) {
-      // persist finish data in training_sessions
-      await finishSupabaseSession(sid, repCount, started);
+    try {
+      if (sid && started != null) {
+        await finishSupabaseSession(sid, repCount, started);
 
-      // 🔎 AUDIT: log the UX event
-      if (!sid.startsWith("local-")) {
-        const durationSec = Math.max(0, Math.round((Date.now() - started) / 1000));
-        try {
-          await audit("session.finish", {
-            session_id: sid,
-            technique,
-            total_reps: repCount ?? 0,
-            duration_sec: durationSec,
-          });
-        } catch (e) {
-          console.warn("audit session.finish failed", e);
+        if (!sid.startsWith("local-")) {
+          const durationSec = Math.max(
+            0,
+            Math.round((Date.now() - started) / 1000)
+          );
+          try {
+            await audit("session.finish", {
+              session_id: sid,
+              technique,
+              total_reps: repCount ?? 0,
+              duration_sec: durationSec,
+            });
+          } catch (e) {
+            console.warn("audit session.finish failed", e);
+          }
         }
       }
+    } finally {
+      const qp = new URLSearchParams({
+        sid: sid ?? "",
+        technique,
+        reps: String(repCount ?? 0),
+      }).toString();
+      router.push(`/summary?${qp}`);
     }
-  } finally {
-    // if you still auto-route, keep this; otherwise remove
-    const qp = new URLSearchParams({
-      sid: sid ?? "",
-      technique,
-      reps: String(repCount ?? 0),
-    }).toString();
-    router.push(`/summary?${qp}`);
-  }
-}, [finishSupabaseSession, reps, startedAtMs, technique, router]);
+  }, [finishSupabaseSession, reps, startedAtMs, technique, router]);
 
   /* ---------------------------------- UI ---------------------------------- */
   return (
