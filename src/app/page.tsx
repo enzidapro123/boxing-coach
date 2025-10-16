@@ -1,6 +1,8 @@
 // src/app/page.tsx (LandingPage)
 "use client";
 import { useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
 import Modal from "@/app/components/modal";
 import { TermsContent, PrivacyContent } from "@/app/components/legal";
 
@@ -14,20 +16,30 @@ export default function LandingPage() {
   const [openPrivacy, setOpenPrivacy] = useState(false);
   const [openTerms, setOpenTerms] = useState(false);
 
+  // Smart NavLink: use <Link> for internal routes, <a> for hash/externals
   const NavLink = ({
     href,
     children,
+    className = "text-neutral-600 hover:text-neutral-900 transition font-medium",
   }: {
     href: string;
     children: React.ReactNode;
-  }) => (
-    <a
-      href={href}
-      className="text-neutral-600 hover:text-neutral-900 transition font-medium"
-    >
-      {children}
-    </a>
-  );
+    className?: string;
+  }) => {
+    const isInternal = href.startsWith("/") && !href.startsWith("//");
+    if (isInternal) {
+      return (
+        <Link href={href} className={className}>
+          {children}
+        </Link>
+      );
+    }
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    );
+  };
 
   async function onContactSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -98,24 +110,31 @@ export default function LandingPage() {
       {/* NAVBAR */}
       <nav className="fixed top-0 z-50 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/50">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a
+          <Link
             href="/"
             className="flex items-center gap-2 hover:opacity-80 transition"
           >
-            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-          </a>
+            <Image
+              src="/logo.png"
+              alt="Logo"
+              width={40}
+              height={40}
+              className="h-10 w-auto"
+              priority
+            />
+          </Link>
 
           <div className="hidden md:flex items-center gap-8">
             <NavLink href="#features">Features</NavLink>
             <NavLink href="#how-it-works">How it works</NavLink>
             <NavLink href="#contact">Contact</NavLink>
             <NavLink href="/login">Login</NavLink>
-            <a
+            <NavLink
               href="/register"
               className="rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-xl"
             >
               Get started
-            </a>
+            </NavLink>
           </div>
 
           {/* Mobile toggle */}
@@ -155,7 +174,6 @@ export default function LandingPage() {
               ["#features", "Features"],
               ["#how-it-works", "How it works"],
               ["#contact", "Contact"],
-              ["/login", "Login"],
             ].map(([href, label]) => (
               <a
                 key={href}
@@ -165,6 +183,13 @@ export default function LandingPage() {
                 {label}
               </a>
             ))}
+            {/* internal route: use Link */}
+            <Link
+              href="/login"
+              className="block px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
+            >
+              Login
+            </Link>
 
             {/* Mobile: open modals for Privacy / Terms */}
             <button
@@ -180,12 +205,12 @@ export default function LandingPage() {
               Terms
             </button>
 
-            <a
+            <Link
               href="/register"
               className="mt-3 block text-center rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg"
             >
               Get started
-            </a>
+            </Link>
           </div>
         )}
       </nav>
@@ -218,7 +243,7 @@ export default function LandingPage() {
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
-              <a
+              <Link
                 href="/register"
                 className="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-base font-semibold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105"
               >
@@ -236,7 +261,7 @@ export default function LandingPage() {
                     d="M13 7l5 5m0 0l-5 5m5-5H6"
                   />
                 </svg>
-              </a>
+              </Link>
               <a
                 href="#how-it-works"
                 className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-neutral-200 bg-white px-8 py-4 text-base font-semibold text-neutral-900 hover:border-red-200 hover:bg-red-50 transition"
@@ -497,7 +522,7 @@ export default function LandingPage() {
         <p className="mt-4 text-xl text-neutral-600">
           Train with knocktech—right in your browser.
         </p>
-        <a
+        <Link
           href="/register"
           className="mt-10 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-10 py-5 text-lg font-semibold text-white shadow-2xl shadow-red-500/40 hover:scale-105 transition"
         >
@@ -515,16 +540,19 @@ export default function LandingPage() {
               d="M13 7l5 5m0 0l-5 5m5-5H6"
             />
           </svg>
-        </a>
+        </Link>
         <p className="mt-6 text-sm text-neutral-500"></p>
       </section>
 
       {/* FOOTER */}
       <footer className="px-6 py-12 bg-gradient-to-b from-white to-neutral-50 text-center text-sm text-neutral-600">
-        <img
+        <Image
           src="/logo.png"
           alt="Logo"
+          width={40}
+          height={40}
           className="h-10 w-auto mx-auto mb-4 opacity-90"
+          priority
         />
         <div className="flex flex-wrap justify-center gap-6">
           <NavLink href="#features">Features</NavLink>

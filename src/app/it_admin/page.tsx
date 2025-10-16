@@ -1,8 +1,9 @@
-// app/it_admin/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 
 /* ----------------------------- Row types ----------------------------- */
@@ -17,8 +18,18 @@ type S30 = {
   duration_sec: number | null;
   total_reps: number | null;
 };
-type D30 = { day: string; sessions: number; reps: number; avg_duration_sec: number | null };
-type TopUser = { user_id: string | null; display_name: string; sessions: number; reps: number };
+type D30 = {
+  day: string;
+  sessions: number;
+  reps: number;
+  avg_duration_sec: number | null;
+};
+type TopUser = {
+  user_id: string | null;
+  display_name: string;
+  sessions: number;
+  reps: number;
+};
 type Mix = { technique: string; sessions: number; reps: number };
 type Recent = {
   id: string;
@@ -31,18 +42,14 @@ type Recent = {
   total_reps: number | null;
 };
 
-/* ---- Audit log type (shape from v_admin_audit_recent) ----
-  Suggested view columns:
-    id, occurred_at (timestamptz), actor (text/email/username),
-    action (text), target (text nullable), details (jsonb nullable)
-*/
+/* ---- Audit log type (shape from v_admin_audit_recent) ---- */
 type AuditRow = {
   id: string;
   occurred_at: string | null;
   actor: string | null;
   action: string;
   target?: string | null;
-  details?: any | null; // jsonb
+  details?: Record<string, unknown> | unknown | null; // jsonb (no `any`)
 };
 
 export default function ItAdminPage() {
@@ -52,7 +59,7 @@ export default function ItAdminPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [sessions30, setSessions30] = useState<S30[]>([]);
-  const [daily30, setDaily30] = useState<D30[]>([]);
+  const [_daily30, setDaily30] = useState<D30[]>([]); // intentionally unused in UI
   const [topUsers30, setTopUsers30] = useState<TopUser[]>([]);
   const [mix30, setMix30] = useState<Mix[]>([]);
   const [recent, setRecent] = useState<Recent[]>([]);
@@ -107,7 +114,6 @@ export default function ItAdminPage() {
         setTotalUsers(usersCount.count ?? 0);
 
         // Load AUDIT LOG (best-effort; don't fail the whole page)
-        // Preferred: a view like v_admin_audit_recent (already joined & normalized)
         const ar = await supabase
           .from("v_admin_audit_recent")
           .select("*")
@@ -115,31 +121,14 @@ export default function ItAdminPage() {
           .limit(100);
 
         if (ar.error) {
-          // Fallback: point to your raw table if you don't have the view yet.
-          // Uncomment and adjust the columns if needed:
-          // const fall = await supabase
-          //   .from("audit_events")
-          //   .select("id, created_at, actor, action, target, details")
-          //   .order("created_at", { ascending: false })
-          //   .limit(100);
-          // if (fall.error) setAuditErr(fall.error.message);
-          // else
-          //   setAuditRows(
-          //     (fall.data || []).map((r: any) => ({
-          //       id: r.id,
-          //       occurred_at: r.created_at,
-          //       actor: r.actor ?? null,
-          //       action: r.action,
-          //       target: r.target ?? null,
-          //       details: r.details ?? null,
-          //     }))
-          //   );
           setAuditErr(ar.error.message);
         } else {
           setAuditRows((ar.data ?? []) as AuditRow[]);
         }
-      } catch (e: any) {
-        setErr(e.message || "Failed to load admin data");
+      } catch (e: unknown) {
+        const msg =
+          e instanceof Error ? e.message : "Failed to load admin data";
+        setErr(msg);
       } finally {
         setLoading(false);
       }
@@ -193,9 +182,19 @@ export default function ItAdminPage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           {/* Left group: logo + title */}
           <div className="flex items-center gap-3">
-            <a href="/" className="flex items-center hover:opacity-80 transition">
-              <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-            </a>
+            <Link
+              href="/"
+              className="flex items-center hover:opacity-80 transition"
+            >
+              <Image
+                src="/logo.png"
+                alt="Logo"
+                width={40}
+                height={40}
+                className="h-10 w-auto"
+                priority
+              />
+            </Link>
 
             <div className="flex flex-col leading-tight">
               <h1 className="text-xl font-bold">IT Admin</h1>
@@ -204,23 +203,43 @@ export default function ItAdminPage() {
           </div>
 
           {/* Right button */}
-          <a
+          <Link
             href="/dashboard"
             className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 transition"
           >
             Back to app
-          </a>
+          </Link>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* KPIs */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Kpi title="Total users (all-time)" value={totalUsers} accent="from-red-600 to-orange-500" />
-          <Kpi title="Active users (30d)" value={kpi.uniqueUsersActive30d} accent="from-orange-600 to-red-500" />
-          <Kpi title="Sessions (30d)" value={kpi.sessions} accent="from-rose-500 to-orange-500" />
-          <Kpi title="Total reps (30d)" value={kpi.reps} accent="from-fuchsia-500 to-pink-500" />
-          <Kpi title="Avg duration (s)" value={kpi.avgDur} accent="from-amber-500 to-red-500" />
+          <Kpi
+            title="Total users (all-time)"
+            value={totalUsers}
+            accent="from-red-600 to-orange-500"
+          />
+          <Kpi
+            title="Active users (30d)"
+            value={kpi.uniqueUsersActive30d}
+            accent="from-orange-600 to-red-500"
+          />
+          <Kpi
+            title="Sessions (30d)"
+            value={kpi.sessions}
+            accent="from-rose-500 to-orange-500"
+          />
+          <Kpi
+            title="Total reps (30d)"
+            value={kpi.reps}
+            accent="from-fuchsia-500 to-pink-500"
+          />
+          <Kpi
+            title="Avg duration (s)"
+            value={kpi.avgDur}
+            accent="from-amber-500 to-red-500"
+          />
         </section>
 
         {/* Technique mix (30d) */}
@@ -228,7 +247,9 @@ export default function ItAdminPage() {
           <Table
             head={["Technique", "Sessions", "Reps"]}
             rows={mix30.map((r) => [
-              <span className="capitalize" key="t">{r.technique}</span>,
+              <span className="capitalize" key="t">
+                {r.technique}
+              </span>,
               <Right key="s">{r.sessions}</Right>,
               <Right key="r">{r.reps}</Right>,
             ])}
@@ -241,7 +262,12 @@ export default function ItAdminPage() {
           <Table
             head={["User", "Sessions", "Reps"]}
             rows={topUsers30.map((u) => [
-              <span key="u" className="truncate max-w-[220px] inline-block align-middle">{u.display_name}</span>,
+              <span
+                key="u"
+                className="truncate max-w-[220px] inline-block align-middle"
+              >
+                {u.display_name}
+              </span>,
               <Right key="s">{u.sessions}</Right>,
               <Right key="r">{u.reps}</Right>,
             ])}
@@ -255,8 +281,15 @@ export default function ItAdminPage() {
             head={["Started", "User", "Technique", "Reps", "Duration (s)"]}
             rows={recent.map((r) => [
               r.started_at ? new Date(r.started_at).toLocaleString() : "—",
-              <span key="u" className="truncate max-w-[220px] inline-block align-middle">{r.display_name}</span>,
-              <span className="capitalize" key="t">{r.technique}</span>,
+              <span
+                key="u"
+                className="truncate max-w-[220px] inline-block align-middle"
+              >
+                {r.display_name}
+              </span>,
+              <span className="capitalize" key="t">
+                {r.technique}
+              </span>,
               <Right key="reps">{r.total_reps ?? 0}</Right>,
               <Right key="dur">{r.duration_sec ?? 0}</Right>,
             ])}
@@ -268,22 +301,26 @@ export default function ItAdminPage() {
         <Card title="Audit log (last 100 events)">
           {auditErr && (
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              {auditErr} — check that the view <code>v_admin_audit_recent</code> exists or switch to your <code>audit_events</code> table.
+              {auditErr} — check that the view <code>v_admin_audit_recent</code>{" "}
+              exists or switch to your <code>audit_events</code> table.
             </div>
           )}
           <Table
             head={["When", "Actor", "Action", "Target", "Details"]}
-            rows={
-              auditRows.map((a) => [
-                a.occurred_at ? new Date(a.occurred_at).toLocaleString() : "—",
-                a.actor ?? "—",
-                <span key={`${a.id}-act`} className="font-medium">{a.action}</span>,
-                a.target ?? "—",
-                <span key={`${a.id}-d`} className="text-xs text-neutral-600 break-all">
-                  {a.details ? safeMiniJSON(a.details) : "—"}
-                </span>,
-              ])
-            }
+            rows={auditRows.map((a) => [
+              a.occurred_at ? new Date(a.occurred_at).toLocaleString() : "—",
+              a.actor ?? "—",
+              <span key={`${a.id}-act`} className="font-medium">
+                {a.action}
+              </span>,
+              a.target ?? "—",
+              <span
+                key={`${a.id}-d`}
+                className="text-xs text-neutral-600 break-all"
+              >
+                {a.details ? safeMiniJSON(a.details) : "—"}
+              </span>,
+            ])}
             empty="No audit events"
           />
         </Card>
@@ -304,14 +341,22 @@ function Kpi({
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white/85 backdrop-blur-xl p-4 shadow-sm">
-      <div className={`absolute -right-10 -top-10 h-24 w-24 rounded-full bg-gradient-to-br ${accent} opacity-20 blur-2xl`} />
+      <div
+        className={`absolute -right-10 -top-10 h-24 w-24 rounded-full bg-gradient-to-br ${accent} opacity-20 blur-2xl`}
+      />
       <div className="text-xs font-medium text-neutral-600">{title}</div>
       <div className="mt-1 text-3xl font-extrabold tracking-tight">{value}</div>
     </div>
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="relative overflow-hidden rounded-3xl border border-red-100/80 bg-white/85 backdrop-blur-xl shadow-2xl shadow-red-500/10">
       <div className="absolute -inset-10 bg-gradient-to-br from-red-300/20 to-orange-300/20 opacity-60 blur-3xl" />
@@ -331,7 +376,7 @@ function Table({
   empty,
 }: {
   head: (string | React.ReactNode)[];
-  rows: (React.ReactNode[])[];
+  rows: React.ReactNode[][];
   empty: string;
 }) {
   return (
@@ -378,7 +423,6 @@ function Right({ children }: { children: React.ReactNode }) {
 function safeMiniJSON(val: unknown) {
   try {
     const s = JSON.stringify(val);
-    // trim long blobs while keeping key information visible
     return s.length > 200 ? `${s.slice(0, 200)}…` : s;
   } catch {
     return String(val ?? "");

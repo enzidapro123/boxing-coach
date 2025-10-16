@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 
 export default function TrainingPage() {
@@ -51,17 +52,29 @@ export default function TrainingPage() {
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
           {/* Left section: Icon + Back to Dashboard */}
           <div className="flex items-center gap-3">
-            {/* BlazePose icon */}
-          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition">
-            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-          </a>
+            {/* Logo */}
+            <Link
+              href="/"
+              className="flex items-center gap-2 hover:opacity-80 transition"
+              prefetch
+            >
+              <Image
+                src="/logo.png"
+                alt="Logo"
+                width={40}
+                height={40}
+                className="h-10 w-auto"
+                priority
+              />
+            </Link>
+
             {/* Back button */}
             <Link
               href="/dashboard"
               className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
               prefetch
             >
-             Back to Dashboard
+              Back to Dashboard
             </Link>
           </div>
 
@@ -70,11 +83,13 @@ export default function TrainingPage() {
             <span className="text-sm text-neutral-600">{userName}</span>
             <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-red-200/60 bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold">
               {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={avatarUrl}
                   alt="Profile"
+                  width={40}
+                  height={40}
                   className="w-full h-full object-cover"
+                  unoptimized
                 />
               ) : (
                 <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
@@ -104,10 +119,11 @@ export default function TrainingPage() {
           {/* Techniques Grid */}
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {techniques.map((t) => (
-              <a
+              <Link
                 key={t.name}
                 href={`/session/${t.name.toLowerCase()}`}
                 className="group relative rounded-3xl border border-red-100/70 bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
+                prefetch
               >
                 {/* Hover aura */}
                 <div
@@ -139,18 +155,19 @@ export default function TrainingPage() {
                     </svg>
                   </div>
                 </div>
-              </a>
+              </Link>
             ))}
           </section>
 
           {/* Bottom CTA */}
           <div className="text-center mt-16">
-            <a
+            <Link
               href="/dashboard"
               className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-white font-semibold shadow-md hover:scale-105 transition"
+              prefetch
             >
               ← Back to Dashboard
-            </a>
+            </Link>
           </div>
         </div>
       </main>

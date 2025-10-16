@@ -2,6 +2,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import { audit } from "@/app/lib/audit";
@@ -63,9 +65,19 @@ export default function SuperAdminPage() {
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <a href="/" className="flex items-center hover:opacity-80 transition">
-              <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-            </a>
+            <Link
+              href="/"
+              className="flex items-center hover:opacity-80 transition"
+            >
+              <Image
+                src="/logo.png"
+                alt="Logo"
+                width={40}
+                height={40}
+                className="h-10 w-auto"
+                priority
+              />
+            </Link>
             <div className="flex flex-col leading-tight">
               <h1 className="text-xl font-bold">Super Admin</h1>
               <p className="text-xs text-neutral-600">Organization controls</p>
@@ -73,9 +85,21 @@ export default function SuperAdminPage() {
           </div>
 
           <nav className="flex gap-2">
-            <Tab label="Users" active={tab === "users"} onClick={() => setTab("users")} />
-            <Tab label="Sessions" active={tab === "sessions"} onClick={() => setTab("sessions")} />
-            <Tab label="Reports" active={tab === "reports"} onClick={() => setTab("reports")} />
+            <Tab
+              label="Users"
+              active={tab === "users"}
+              onClick={() => setTab("users")}
+            />
+            <Tab
+              label="Sessions"
+              active={tab === "sessions"}
+              onClick={() => setTab("sessions")}
+            />
+            <Tab
+              label="Reports"
+              active={tab === "reports"}
+              onClick={() => setTab("reports")}
+            />
           </nav>
         </div>
       </header>
@@ -94,10 +118,15 @@ function UsersPanel() {
   const [rows, setRows] = useState<UserRow[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
-  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [banner, setBanner] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
 
   // local editable state per row (username + role)
-  const [edits, setEdits] = useState<Record<string, { username: string; user_role: Role }>>({});
+  const [edits, setEdits] = useState<
+    Record<string, { username: string; user_role: Role }>
+  >({});
 
   const load = async () => {
     setLoading(true);
@@ -112,7 +141,10 @@ function UsersPanel() {
       const list = (data ?? []) as UserRow[];
       setRows(list);
       const map: Record<string, { username: string; user_role: Role }> = {};
-      list.forEach((u) => (map[u.id] = { username: u.username ?? "", user_role: u.user_role }));
+      list.forEach(
+        (u) =>
+          (map[u.id] = { username: u.username ?? "", user_role: u.user_role })
+      );
       setEdits(map);
     }
   };
@@ -130,8 +162,10 @@ function UsersPanel() {
     );
   });
 
-  const onChange = (id: string, patch: Partial<{ username: string; user_role: Role }>) =>
-    setEdits((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
+  const onChange = (
+    id: string,
+    patch: Partial<{ username: string; user_role: Role }>
+  ) => setEdits((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
 
   const saveRow = async (u: UserRow) => {
     const e = edits[u.id];
@@ -169,7 +203,9 @@ function UsersPanel() {
           to: e.username,
         });
       }
-    } catch {}
+    } catch {
+      // ignore audit faults
+    }
 
     setBanner({ kind: "ok", text: "Saved." });
     await load();
@@ -183,7 +219,10 @@ function UsersPanel() {
     });
     if (!error) {
       try {
-        await audit("admin.user.reset_password", { user_id: u.id, email: u.email });
+        await audit("admin.user.reset_password", {
+          user_id: u.id,
+          email: u.email,
+        });
       } catch {}
     }
     setBanner(
@@ -193,47 +232,58 @@ function UsersPanel() {
     );
   };
 
-// inside UsersPanel -> deleteUser
-const deleteUser = async (user_id: string) => {
-  if (!confirm("Delete this user COMPLETELY (app data + auth)? This cannot be undone.")) return;
-
-  setBanner(null);
-  try {
-    // get the current access token
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token ?? "";
-
-    const res = await fetch("/api/admin/delete-user", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // <-- Send the token explicitly
-        Authorization: `Bearer ${token}`,
-      },
-      credentials: "include",   // fine to keep; token is what matters now
-      cache: "no-store",
-      body: JSON.stringify({ user_id }),
-    });
-
-    const ct = res.headers.get("content-type") || "";
-    const payload = ct.includes("application/json")
-      ? await res.json()
-      : { error: await res.text() };
-
-    if (!res.ok || payload?.error) {
-      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
+  // inside UsersPanel -> deleteUser
+  const deleteUser = async (user_id: string) => {
+    if (
+      !confirm(
+        "Delete this user COMPLETELY (app data + auth)? This cannot be undone."
+      )
+    )
       return;
+
+    setBanner(null);
+    try {
+      // get the current access token
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // <-- Send the token explicitly
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        cache: "no-store",
+        body: JSON.stringify({ user_id }),
+      });
+
+      const ct = res.headers.get("content-type") || "";
+      const payload = ct.includes("application/json")
+        ? await res.json()
+        : { error: await res.text() };
+
+      if (!res.ok || (payload as { error?: string })?.error) {
+        const msg =
+          (payload as { error?: string })?.error || `HTTP ${res.status}`;
+        setBanner({ kind: "err", text: msg });
+        return;
+      }
+
+      try {
+        await audit("admin.user.delete", { user_id });
+      } catch {}
+
+      setBanner({ kind: "ok", text: "User deleted." });
+      await load();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setBanner({ kind: "err", text: msg || "Delete failed." });
     }
-
-    try { await audit("admin.user.delete", { user_id }); } catch {}
-    setBanner({ kind: "ok", text: "User deleted." });
-    await load();
-  } catch (e: any) {
-    setBanner({ kind: "err", text: e?.message || "Delete failed." });
-  }
-};
-
-
+  };
 
   return (
     <Card title="Users">
@@ -244,7 +294,10 @@ const deleteUser = async (user_id: string) => {
           placeholder="Search email / username / role…"
           className="w-72 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
         />
-        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+        <button
+          onClick={load}
+          className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+        >
           Refresh
         </button>
       </div>
@@ -276,7 +329,9 @@ const deleteUser = async (user_id: string) => {
               key="role"
               className="rounded border border-neutral-200 bg-white px-2 py-1"
               value={edits[u.id]?.user_role ?? u.user_role}
-              onChange={(e) => onChange(u.id, { user_role: e.target.value as Role })}
+              onChange={(e) =>
+                onChange(u.id, { user_role: e.target.value as Role })
+              }
             >
               <option value="regular">regular</option>
               <option value="it_admin">it_admin</option>
@@ -289,7 +344,8 @@ const deleteUser = async (user_id: string) => {
                 className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm"
                 disabled={
                   !edits[u.id] ||
-                  (edits[u.id].username === (u.username ?? "") && edits[u.id].user_role === u.user_role)
+                  (edits[u.id].username === (u.username ?? "") &&
+                    edits[u.id].user_role === u.user_role)
                 }
               >
                 Save
@@ -321,7 +377,10 @@ function SessionsPanel() {
   const [tech, setTech] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
-  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [banner, setBanner] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -353,47 +412,55 @@ function SessionsPanel() {
     );
   });
 
-const deleteSession = async (session_id: string) => {
-  if (!confirm("Delete this session? (Reps will also be removed)")) return;
+  const deleteSession = async (session_id: string) => {
+    if (!confirm("Delete this session? (Reps will also be removed)")) return;
 
-  setBanner(null);
+    setBanner(null);
 
-  try {
-    // Get an access token to prove who is calling the API
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      setBanner({ kind: "err", text: "Not signed in." });
-      return;
+    try {
+      // Get an access token to prove who is calling the API
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setBanner({ kind: "err", text: "Not signed in." });
+        return;
+      }
+
+      const res = await fetch("/api/admin/delete-session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`, // <— important
+        },
+        cache: "no-store",
+        body: JSON.stringify({ session_id }),
+      });
+
+      const ct = res.headers.get("content-type") || "";
+      const payload = ct.includes("application/json")
+        ? await res.json()
+        : { error: await res.text() };
+
+      if (!res.ok || (payload as { error?: string })?.error) {
+        const msg =
+          (payload as { error?: string })?.error || `HTTP ${res.status}`;
+        setBanner({ kind: "err", text: msg });
+        return;
+      }
+
+      try {
+        await audit("admin.session.delete", { session_id });
+      } catch {}
+
+      setBanner({ kind: "ok", text: "Session deleted." });
+      await load();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setBanner({ kind: "err", text: msg || "Delete failed." });
     }
-
-    const res = await fetch("/api/admin/delete-session", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,     // <— important
-      },
-      cache: "no-store",
-      body: JSON.stringify({ session_id }),
-    });
-
-    const ct = res.headers.get("content-type") || "";
-    const payload = ct.includes("application/json") ? await res.json() : { error: await res.text() };
-
-    if (!res.ok || payload?.error) {
-      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
-      return;
-    }
-
-    try { await audit("admin.session.delete", { session_id }); } catch {}
-
-    setBanner({ kind: "ok", text: "Session deleted." });
-    await load();
-  } catch (e: any) {
-    setBanner({ kind: "err", text: e?.message || "Delete failed." });
-  }
-};
-
+  };
 
   const techniques = useMemo(
     () => Array.from(new Set(rows.map((r) => r.technique.toLowerCase()))),
@@ -406,7 +473,10 @@ const deleteSession = async (session_id: string) => {
         <select
           className="rounded-lg border border-neutral-200 bg-white px-2 py-2"
           value={tech}
-          onChange={(e) => setTech(e.target.value)}
+          onChange={
+            (e: React.ChangeEvent<HTMLSelectElement>) =>
+              setTech(e.currentTarget.value) // ✅ use currentTarget.value
+          }
         >
           <option value="">All techniques</option>
           {techniques.map((t) => (
@@ -421,7 +491,10 @@ const deleteSession = async (session_id: string) => {
           onChange={(e) => setQ(e.target.value)}
           className="w-64 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
         />
-        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+        <button
+          onClick={load}
+          className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+        >
           Refresh
         </button>
       </div>
@@ -507,7 +580,11 @@ function ReportsPanel() {
 
       <Card title="Technique mix (30d)">
         <Table
-          head={["Technique", <Right key="s">Sessions</Right>, <Right key="r">Reps</Right>]}
+          head={[
+            "Technique",
+            <Right key="s">Sessions</Right>,
+            <Right key="r">Reps</Right>,
+          ]}
           rows={mix.map((m) => [
             <span key="t" className="capitalize">
               {m.technique}
@@ -530,11 +607,19 @@ function ScreenLoading() {
     </div>
   );
 }
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-4 shadow-sm">
       <div className="px-2 pb-3 pt-1 font-semibold">{title}</div>
-      <div className="rounded-xl border border-neutral-100 bg-white/70 p-3">{children}</div>
+      <div className="rounded-xl border border-neutral-100 bg-white/70 p-3">
+        {children}
+      </div>
     </section>
   );
 }
@@ -544,14 +629,20 @@ function Table({
   empty,
 }: {
   head: (string | React.ReactNode)[];
-  rows: (React.ReactNode[])[];
+  rows: React.ReactNode[][];
   empty: string;
 }) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead className="bg-neutral-50/70 text-neutral-600">
-          <tr>{head.map((h, i) => <th key={i} className="p-3 text-left">{h}</th>)}</tr>
+          <tr>
+            {head.map((h, i) => (
+              <th key={i} className="p-3 text-left">
+                {h}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.length ? (
@@ -584,7 +675,11 @@ function Banner({ kind, text }: { kind: "ok" | "err"; text: string }) {
     kind === "ok"
       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
       : "bg-red-50 border-red-200 text-red-700";
-  return <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${cls}`}>{text}</div>;
+  return (
+    <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${cls}`}>
+      {text}
+    </div>
+  );
 }
 function Kpi({ title, value }: { title: string; value: number }) {
   return (
@@ -594,12 +689,22 @@ function Kpi({ title, value }: { title: string; value: number }) {
     </div>
   );
 }
-function Tab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function Tab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
       className={`px-3 py-1.5 rounded-full text-sm border transition ${
-        active ? "bg-neutral-900 text-white border-neutral-900" : "bg-white border-neutral-200 hover:bg-neutral-50"
+        active
+          ? "bg-neutral-900 text-white border-neutral-900"
+          : "bg-white border-neutral-200 hover:bg-neutral-50"
       }`}
     >
       {label}

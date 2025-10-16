@@ -1,11 +1,12 @@
+// app/session/[technique]/PoseClient.tsx
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { drawBBoxAndLabel, drawKeypoints, drawSkeleton } from "../_pose/draw";
 import { supabase } from "../../lib/supabaseClient";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import { useRouter } from "next/navigation";
-import { audit } from "@/app/lib/audit"; // make sure this exists
+import { audit } from "@/app/lib/audit";
 
 /* -------------------------------------------------- Types */
 type TechniqueName = "jab" | "cross" | "hook" | "uppercut" | "guard";
@@ -15,6 +16,17 @@ type KP = { x: number; y: number; z?: number; score?: number; name?: string };
 type Arm = "left" | "right";
 type LogItem = { ts: number; kind: "ok" | "warn"; text: string };
 type LogDraft = Omit<LogItem, "ts">;
+
+type UserProgressInsert = {
+  user_id: string;
+  technique: string;
+  created_at: string;
+  total_reps: number;
+  notes?: string;
+  progress_percentage?: number;
+  accuracy?: number;
+  avg_score?: number;
+};
 
 /* -------------------------- Landmark names (33) */
 const NAMES = [
@@ -55,7 +67,10 @@ const NAMES = [
 
 /* -------------------------------------------------- Helpers */
 function syncCanvasToCSS(canvas: HTMLCanvasElement) {
-  const dpr = Math.max(1, (window as any).devicePixelRatio || 1);
+  const dpr = Math.max(
+    1,
+    (typeof window !== "undefined" ? window.devicePixelRatio : 1) || 1
+  );
   const rect = canvas.getBoundingClientRect();
   const w = Math.floor(rect.width * dpr);
   const h = Math.floor(rect.height * dpr);
@@ -138,8 +153,6 @@ export default function PoseClient({ technique, stance }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [reps, setReps] = useState(0);
   const [log, setLog] = useState<LogItem[]>([]);
-
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const router = useRouter();
 
@@ -233,13 +246,7 @@ export default function PoseClient({ technique, stance }: Props) {
   const guardWasUp = useRef(false);
   const guardLastHintTs = useRef(0);
   const guardSecondsRef = useRef(0);
-  const guardState = useRef<"searching" | "holding">("searching");
-  const guardAttempt = useRef<{
-    startTs: number | null;
-    heldMs: number;
-    lastBothOkTs: number | null;
-  }>({ startTs: null, heldMs: 0, lastBothOkTs: null });
-  const guardBadHand = useRef<"left" | "right" | "both" | null>(null);
+
   /* -------------------------------- camera -------------------------------- */
   const initCamera = useCallback(async () => {
     const video = videoRef.current!;
@@ -336,7 +343,6 @@ export default function PoseClient({ technique, stance }: Props) {
       totalReps: number,
       durationSec: number
     ) => {
-      // skip local/unauth
       if (sid.startsWith("local-")) return;
 
       const {
@@ -344,7 +350,6 @@ export default function PoseClient({ technique, stance }: Props) {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // prevent duplicate insert: if a row with notes "auto:<sid>" exists, skip
       const { data: existing, error: exErr } = await supabase
         .from("user_progress")
         .select("id, notes")
@@ -356,28 +361,28 @@ export default function PoseClient({ technique, stance }: Props) {
       if (exErr) {
         console.warn("user_progress duplicate check warning:", exErr.message);
       }
-      if (existing?.id) return; // already logged
+      if (existing?.id) return;
 
-      const score = computeAccuracy(tech, totalReps, durationSec);
+      const rawScore = computeAccuracy(tech, totalReps, durationSec);
       const clamp = (v: number | null | undefined) =>
         typeof v === "number"
           ? Math.max(0, Math.min(100, Math.round(v)))
-          : null;
+          : undefined;
 
-      const row: Record<string, any> = {
+      const row: UserProgressInsert = {
         user_id: user.id,
         technique: tech || "jab",
         created_at: new Date().toISOString(),
-        progress_percentage: clamp(score),
-        accuracy: clamp(score),
         total_reps: Math.max(0, totalReps || 0),
-        avg_score: clamp(score),
         notes: `auto:${sid}`,
+        ...(clamp(rawScore) !== undefined
+          ? {
+              progress_percentage: clamp(rawScore)!,
+              accuracy: clamp(rawScore)!,
+              avg_score: clamp(rawScore)!,
+            }
+          : {}),
       };
-      // drop nulls so defaults can apply
-      Object.keys(row).forEach((k) => {
-        if (row[k] === null) delete row[k];
-      });
 
       const { error } = await supabase.from("user_progress").insert([row]);
       if (error) {
@@ -409,9 +414,19 @@ export default function PoseClient({ technique, stance }: Props) {
         ctx.fillText("No pose detected", 16, 30);
         ctx.fillText("Move closer to camera", 16, 46);
       } else {
-        drawSkeleton(ctx, kps as any);
-        drawKeypoints(ctx, kps as any);
-        drawBBoxAndLabel(ctx, kps as any);
+        // cast through unknown to avoid explicit 'any'
+        drawSkeleton(
+          ctx as unknown as CanvasRenderingContext2D,
+          kps as unknown as KP[]
+        );
+        drawKeypoints(
+          ctx as unknown as CanvasRenderingContext2D,
+          kps as unknown as KP[]
+        );
+        drawBBoxAndLabel(
+          ctx as unknown as CanvasRenderingContext2D,
+          kps as unknown as KP[]
+        );
       }
 
       ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -517,9 +532,7 @@ export default function PoseClient({ technique, stance }: Props) {
             if (sid && !sid.startsWith("local-")) {
               supabase
                 .from("session_reps")
-                .insert({
-                  session_id: sid /* , technique, user_id if no trigger */,
-                })
+                .insert({ session_id: sid })
                 .then(({ error }) => {
                   if (error)
                     pushLog({
@@ -622,7 +635,6 @@ export default function PoseClient({ technique, stance }: Props) {
 
     const k = kpMap(kps);
 
-    // Face landmarks and halves split by the nose X
     const faceKeys = [
       "left_eye_inner",
       "left_eye",
@@ -650,7 +662,6 @@ export default function PoseClient({ technique, stance }: Props) {
             (p) => p.name?.startsWith("right") || p.name === "nose"
           );
 
-    // Estimate face width for contact radius
     const le = k["left_eye"],
       re = k["right_eye"];
     const ml = k["mouth_left"],
@@ -663,14 +674,12 @@ export default function PoseClient({ technique, stance }: Props) {
       faceWidth = Math.max(...xs) - Math.min(...xs);
     }
 
-    // helper to process one arm independently
     const doArm = (arm: Arm) => {
       const m = evalArm(kps, arm);
       const prevLat = hookLastLat.current[arm] || 0;
       const lateral = m.lateral;
       const wasArm = hookPhase.current[arm];
 
-      // thresholds
       const START_LAT = 0.55;
       const PEAK_MIN_LAT = 0.95;
       const DROP_FRAC = 0.12;
@@ -681,18 +690,14 @@ export default function PoseClient({ technique, stance }: Props) {
       const Y_ALIGN =
         Math.abs((m.w?.y ?? 0) - (m.s?.y ?? 0)) / (m.bodyScale || 1);
 
-      // 4 hand points for this arm
       const handPts = [
         k[`${arm}_wrist`],
         k[`${arm}_index`],
         k[`${arm}_thumb`],
         k[`${arm}_pinky`],
       ].filter(Boolean) as KP[];
-
-      // side of the face this arm should contact
       const sidePts = arm === "left" ? leftFaceHalf : rightFaceHalf;
 
-      // contact radius scales with body/face size
       const S = m.bodyScale || 1;
       const CONTACT_R = Math.max(0.18 * S, 0.6 * (faceWidth || S));
 
@@ -703,7 +708,6 @@ export default function PoseClient({ technique, stance }: Props) {
       const contactOk =
         Number.isFinite(minDistToSide) && minDistToSide <= CONTACT_R;
 
-      // start swing
       if (wasArm === "idle" && lateral > START_LAT && lateral > prevLat) {
         hookPhase.current[arm] = "swinging";
         hookContacted.current[arm] = false;
@@ -717,7 +721,6 @@ export default function PoseClient({ technique, stance }: Props) {
       }
 
       if (hookPhase.current[arm] === "swinging") {
-        // update peak
         if (hookPeak.current[arm] && lateral > hookPeak.current[arm]!.lateral) {
           hookPeak.current[arm] = {
             lateral,
@@ -728,14 +731,10 @@ export default function PoseClient({ technique, stance }: Props) {
           };
         }
 
-        // If contact happens during swing → immediate rep
         if (contactOk && !hookContacted.current[arm]) {
           hookContacted.current[arm] = true;
           setReps((r) => r + 1);
-          pushLog({
-            kind: "ok",
-            text: `Correct hook (${arm} arm) — good job`,
-          });
+          pushLog({ kind: "ok", text: `Correct hook (${arm} arm) — good job` });
           const sid = sessionIdRef.current;
           if (sid && !sid.startsWith("local-")) {
             supabase
@@ -749,11 +748,9 @@ export default function PoseClient({ technique, stance }: Props) {
                   });
               });
           }
-          // reset for next rep
           hookPhase.current[arm] = "idle";
           hookPeak.current[arm] = null;
         } else {
-          // else: when retreating, validate via kinematics
           const p = hookPeak.current[arm]!;
           if (p && lateral < p.lateral * (1 - DROP_FRAC)) {
             const elbowOk = p.elbow >= ELBOW_MIN && p.elbow <= ELBOW_MAX;
@@ -802,7 +799,6 @@ export default function PoseClient({ technique, stance }: Props) {
       hookLastLat.current[arm] = lateral;
     };
 
-    // process both arms every frame
     doArm("left");
     doArm("right");
   }
@@ -839,7 +835,6 @@ export default function PoseClient({ technique, stance }: Props) {
     const startCondition =
       (emaCurr > START_RISE || vel > VEL_MIN) && emaCurr > prevRise;
 
-    // 👀 Eye-contact rule (4 hand dots vs eyes)
     const eyes = [
       "left_eye",
       "right_eye",
@@ -956,7 +951,6 @@ export default function PoseClient({ technique, stance }: Props) {
     const L = evalArm(kps, "left");
     const R = evalArm(kps, "right");
 
-    // 🎯 Face keypoints to detect contact
     const faceKeys = [
       "left_eye_inner",
       "left_eye",
@@ -972,7 +966,6 @@ export default function PoseClient({ technique, stance }: Props) {
     const facePts = faceKeys.map((n) => k[n as string]).filter(Boolean) as KP[];
     if (facePts.length < 3) return;
 
-    // Estimate face width (for detection radius)
     const le = k["left_eye"],
       re = k["right_eye"];
     const ml = k["mouth_left"],
@@ -986,9 +979,8 @@ export default function PoseClient({ technique, stance }: Props) {
       })();
 
     const S = L.bodyScale || R.bodyScale || 1;
-    const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth); // sensitivity radius
+    const RADIUS = Math.max(0.18 * S, 0.95 * faceWidth);
 
-    // 🖐️ Hand keypoints (3 per hand)
     const leftHandPts = [
       k["left_wrist"],
       k["left_index"],
@@ -1002,7 +994,6 @@ export default function PoseClient({ technique, stance }: Props) {
 
     if (!leftHandPts.length || !rightHandPts.length) return;
 
-    // Minimum distance between hand point and any face point
     const minDistToFace = (points: KP[]) =>
       Math.min(...points.flatMap((p) => facePts.map((f) => dist(p, f))));
 
@@ -1013,7 +1004,6 @@ export default function PoseClient({ technique, stance }: Props) {
     const rightOK = Number.isFinite(dR) && dR <= RADIUS;
     const bothOK = leftOK && rightOK;
 
-    // ⏱️ Time-based guard accumulation
     const now = performance.now();
     const last = guardLastTs.current ?? now;
     const dt = now - last;
@@ -1025,7 +1015,7 @@ export default function PoseClient({ technique, stance }: Props) {
         pushLog({ kind: "ok", text: "Guard up — both hands covering face." });
         guardWasUp.current = true;
       }
-      const STEP = 1000; // log every second
+      const STEP = 1000;
       while (guardAccumMs.current >= STEP) {
         setReps((r) => r + 1);
         guardAccumMs.current -= STEP;
@@ -1035,9 +1025,7 @@ export default function PoseClient({ technique, stance }: Props) {
           if (sid && !sid.startsWith("local-")) {
             supabase
               .from("session_reps")
-              .insert({
-                session_id: sid /* , technique, user_id if no trigger */,
-              })
+              .insert({ session_id: sid })
               .then(({ error }) => {
                 if (error)
                   pushLog({
@@ -1063,6 +1051,7 @@ export default function PoseClient({ technique, stance }: Props) {
       guardAccumMs.current = 0;
     }
   }
+
   /* --------------------------------- loop -------------------------------- */
   const loop = useCallback(() => {
     if (!landmarkerRef.current || !videoRef.current) {
@@ -1097,7 +1086,16 @@ export default function PoseClient({ technique, stance }: Props) {
     }
 
     rafRef.current = requestAnimationFrame(loop);
-  }, [draw, technique, stance]);
+  }, [
+    draw,
+    technique,
+    stance,
+    processJab,
+    processCross,
+    processHook,
+    processUppercut,
+    processGuard,
+  ]);
 
   /* ------------------------------ start/stop ------------------------------ */
   const start = useCallback(async () => {
@@ -1107,7 +1105,6 @@ export default function PoseClient({ technique, stance }: Props) {
     setReps(0);
     setLog([]);
 
-    // reset guard timers each start
     guardAccumMs.current = 0;
     guardWasUp.current = false;
     guardLastTs.current = null;
@@ -1123,7 +1120,6 @@ export default function PoseClient({ technique, stance }: Props) {
       const sid = await startSupabaseSession(technique);
       await audit("session.start", { session_id: sid, technique });
       sessionIdRef.current = sid;
-      setSessionId(sid);
       setStartedAtMs(Date.now());
       setRunning(true);
       setLoading(false);
@@ -1150,7 +1146,6 @@ export default function PoseClient({ technique, stance }: Props) {
     setRunning(false);
     setLoading(false);
 
-    // stop camera + landmarker
     (videoRef.current?.srcObject as MediaStream | null)
       ?.getTracks()
       .forEach((t) => t.stop());
@@ -1159,7 +1154,6 @@ export default function PoseClient({ technique, stance }: Props) {
     } catch {}
     landmarkerRef.current = null;
 
-    // finalize the session
     const sid = sessionIdRef.current;
     const started = startedAtMs;
     const repCount = reps;
@@ -1168,7 +1162,6 @@ export default function PoseClient({ technique, stance }: Props) {
 
     try {
       if (sid && started != null) {
-        // compute duration exactly as we save it
         const durationSec = Math.max(
           0,
           Math.round((Date.now() - started) / 1000)
@@ -1176,7 +1169,6 @@ export default function PoseClient({ technique, stance }: Props) {
 
         await finishSupabaseSession(sid, repCount, started);
 
-        // audit (best-effort)
         if (!sid.startsWith("local-")) {
           try {
             await audit("session.finish", {
@@ -1188,8 +1180,6 @@ export default function PoseClient({ technique, stance }: Props) {
           } catch (e) {
             console.warn("audit session.finish failed", e);
           }
-
-          // ****** AUTO-SAVE ACCURACY TO user_progress ******
           try {
             await autoLogUserProgress(
               sid,

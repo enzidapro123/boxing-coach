@@ -1,6 +1,8 @@
 // app/lib/audit.ts
 import { supabase } from "@/app/lib/supabaseClient";
 
+export type AuditDetails = Record<string, unknown>;
+
 /**
  * Write an audit row.
  * 1) If a session exists, try a direct insert (fast path under RLS).
@@ -9,7 +11,7 @@ import { supabase } from "@/app/lib/supabaseClient";
  */
 export async function audit(
   action: string,
-  details: Record<string, any> = {}
+  details: AuditDetails = {}
 ): Promise<void> {
   try {
     // Prefer direct insert when a session exists (RLS: user_id must match auth.uid())
@@ -36,7 +38,8 @@ export async function audit(
       _details: details,
     });
     if (rpcErr) console.warn("[audit] RPC failed:", rpcErr.message);
-  } catch (e: any) {
-    console.warn("[audit] unexpected error:", e?.message || e);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[audit] unexpected error:", msg);
   }
 }

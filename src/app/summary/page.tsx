@@ -41,11 +41,13 @@ function durationSeconds(row?: {
   finished_at: string | null;
 }) {
   if (!row) return 0;
-  if (typeof row.duration_sec === "number") return Math.max(0, row.duration_sec);
+  if (typeof row.duration_sec === "number")
+    return Math.max(0, row.duration_sec);
   if (row.started_at && row.finished_at) {
     const s = new Date(row.started_at).getTime();
     const f = new Date(row.finished_at).getTime();
-    if (isFinite(s) && isFinite(f)) return Math.max(0, Math.round((f - s) / 1000));
+    if (isFinite(s) && isFinite(f))
+      return Math.max(0, Math.round((f - s) / 1000));
   }
   return 0;
 }
@@ -59,7 +61,9 @@ function formatDurationLabel(sec: number) {
 }
 
 // Derive a 0–100 score from volume density (reps per min), same as Progress page
-function derivedScoreLikeProgress(r: Pick<SessionRow, "technique" | "total_reps"> & { duration_sec: number }) {
+function derivedScoreLikeProgress(
+  r: Pick<SessionRow, "technique" | "total_reps"> & { duration_sec: number }
+) {
   const reps = r.total_reps ?? 0;
   const mins = minutes(r.duration_sec);
   if (!reps) return null;
@@ -126,8 +130,9 @@ export default function SummaryPage() {
 
         const rec = (data?.[0] as SessionRow | undefined) ?? null;
         setRow(rec);
-      } catch (e: any) {
-        setErr(e?.message || "Failed to load session summary.");
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setErr(msg || "Failed to load session summary.");
       } finally {
         setLoading(false);
       }
@@ -135,7 +140,10 @@ export default function SummaryPage() {
   }, [router, sid]);
 
   const durationSec = useMemo(() => durationSeconds(row || undefined), [row]);
-  const durationLabel = useMemo(() => formatDurationLabel(durationSec), [durationSec]);
+  const durationLabel = useMemo(
+    () => formatDurationLabel(durationSec),
+    [durationSec]
+  );
 
   const reps = row?.total_reps ?? 0;
 
@@ -220,12 +228,16 @@ export default function SummaryPage() {
             <div className="text-4xl">{iconFor(row.technique)}</div>
             <div>
               <div className="text-sm text-neutral-600">Technique</div>
-              <div className="text-2xl font-extrabold">{pretty(row.technique)}</div>
+              <div className="text-2xl font-extrabold">
+                {pretty(row.technique)}
+              </div>
             </div>
             <div className="ml-auto text-right">
               <div className="text-xs text-neutral-600">Started</div>
               <div className="font-semibold">
-                {row.started_at ? new Date(row.started_at).toLocaleString() : "—"}
+                {row.started_at
+                  ? new Date(row.started_at).toLocaleString()
+                  : "—"}
               </div>
             </div>
           </div>
@@ -280,7 +292,9 @@ function Kpi({
       <div className="text-xs font-medium text-neutral-600">{label}</div>
       <div className="mt-1 text-2xl font-extrabold">{value}</div>
       {badge && (
-        <div className={`mt-1 text-xs font-semibold ${badge.color}`}>{badge.label}</div>
+        <div className={`mt-1 text-xs font-semibold ${badge.color}`}>
+          {badge.label}
+        </div>
       )}
     </div>
   );
