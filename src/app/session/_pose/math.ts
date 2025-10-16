@@ -2,12 +2,18 @@ import type { Keypoint } from "@tensorflow-models/pose-detection";
 
 type XY = { x: number; y: number };
 
+// Support old PoseNet-style keypoints that had `part`
+type KeypointWithPart = Keypoint & { part?: string };
+
+/** Find a point by landmark name, supporting both `name` and legacy `part`. */
 export function getPoint(keypoints: Keypoint[], name: string): XY | null {
-  const kp = keypoints.find((k) => k.name === name || (k as any).part === name);
+  const kp = (keypoints as KeypointWithPart[]).find(
+    (k) => (k.name ?? k.part) === name
+  );
   return kp ? { x: kp.x, y: kp.y } : null;
 }
 
-function angle(a: XY, b: XY, c: XY) {
+function angle(a: XY, b: XY, c: XY): number {
   const ab = { x: a.x - b.x, y: a.y - b.y };
   const cb = { x: c.x - b.x, y: c.y - b.y };
   const dot = ab.x * cb.x + ab.y * cb.y;
@@ -18,7 +24,7 @@ function angle(a: XY, b: XY, c: XY) {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-export function elbowAngleRight(keypoints: Keypoint[]) {
+export function elbowAngleRight(keypoints: Keypoint[]): number | null {
   const shoulder = getPoint(keypoints, "right_shoulder");
   const elbow = getPoint(keypoints, "right_elbow");
   const wrist = getPoint(keypoints, "right_wrist");
@@ -35,7 +41,7 @@ export class JabCounter {
   private extended = false;
   public reps = 0;
 
-  update(keypoints: Keypoint[]) {
+  update(keypoints: Keypoint[]): number {
     const shoulder = getPoint(keypoints, "right_shoulder");
     const wrist = getPoint(keypoints, "right_wrist");
     if (!shoulder || !wrist) return this.reps;
@@ -47,7 +53,6 @@ export class JabCounter {
     if (forward && !this.extended) {
       this.extended = true;
     }
-    // Reset when the wrist returns “behind” the shoulder
     if (!forward && this.extended) {
       this.reps += 1;
       this.extended = false;
