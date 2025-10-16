@@ -109,6 +109,22 @@ function angleDeg(a?: KP, b?: KP, c?: KP) {
 const leadArm = (stance?: Stance): Arm =>
   stance === "southpaw" ? "right" : "left";
 
+/* ---------- Accuracy from RPM (same logic as progress page) ---------- */
+function computeAccuracy(
+  technique: string,
+  totalReps: number,
+  durationSec: number
+): number | null {
+  const mins = Math.max(1, Math.round(durationSec / 60));
+  if (!totalReps || mins <= 0) return null;
+  const rpm = totalReps / mins;
+  let score = Math.round(Math.min(100, Math.max(0, (rpm / 12) * 100)));
+  if ((technique || "").toLowerCase() === "guard") {
+    score = Math.min(100, Math.round(score * 0.8 + 20));
+  }
+  return score;
+}
+
 /* -------------------------------------------------- Component */
 export default function PoseClient({ technique, stance }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -308,6 +324,65 @@ export default function PoseClient({ technique, stance }: Props) {
           duration_sec: durationSec,
         })
         .eq("id", sid);
+    },
+    []
+  );
+
+  /* ---------------------------- auto-log progress ---------------------------- */
+  const autoLogUserProgress = useCallback(
+    async (
+      sid: string,
+      tech: string,
+      totalReps: number,
+      durationSec: number
+    ) => {
+      // skip local/unauth
+      if (sid.startsWith("local-")) return;
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // prevent duplicate insert: if a row with notes "auto:<sid>" exists, skip
+      const { data: existing, error: exErr } = await supabase
+        .from("user_progress")
+        .select("id, notes")
+        .eq("user_id", user.id)
+        .eq("notes", `auto:${sid}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (exErr) {
+        console.warn("user_progress duplicate check warning:", exErr.message);
+      }
+      if (existing?.id) return; // already logged
+
+      const score = computeAccuracy(tech, totalReps, durationSec);
+      const clamp = (v: number | null | undefined) =>
+        typeof v === "number"
+          ? Math.max(0, Math.min(100, Math.round(v)))
+          : null;
+
+      const row: Record<string, any> = {
+        user_id: user.id,
+        technique: tech || "jab",
+        created_at: new Date().toISOString(),
+        progress_percentage: clamp(score),
+        accuracy: clamp(score),
+        total_reps: Math.max(0, totalReps || 0),
+        avg_score: clamp(score),
+        notes: `auto:${sid}`,
+      };
+      // drop nulls so defaults can apply
+      Object.keys(row).forEach((k) => {
+        if (row[k] === null) delete row[k];
+      });
+
+      const { error } = await supabase.from("user_progress").insert([row]);
+      if (error) {
+        console.warn("user_progress auto insert failed:", error.message);
+      }
     },
     []
   );
@@ -835,7 +910,7 @@ export default function PoseClient({ technique, stance }: Props) {
           pushLog({
             kind: "ok",
             text: `Correct uppercut (${active} arm)${
-              eyeContact ? " — eye contact" : ""
+              eyeContact ? " — good job" : ""
             }`,
           });
           const sid = sessionIdRef.current;
@@ -1093,13 +1168,16 @@ export default function PoseClient({ technique, stance }: Props) {
 
     try {
       if (sid && started != null) {
+        // compute duration exactly as we save it
+        const durationSec = Math.max(
+          0,
+          Math.round((Date.now() - started) / 1000)
+        );
+
         await finishSupabaseSession(sid, repCount, started);
 
+        // audit (best-effort)
         if (!sid.startsWith("local-")) {
-          const durationSec = Math.max(
-            0,
-            Math.round((Date.now() - started) / 1000)
-          );
           try {
             await audit("session.finish", {
               session_id: sid,
@@ -1109,6 +1187,18 @@ export default function PoseClient({ technique, stance }: Props) {
             });
           } catch (e) {
             console.warn("audit session.finish failed", e);
+          }
+
+          // ****** AUTO-SAVE ACCURACY TO user_progress ******
+          try {
+            await autoLogUserProgress(
+              sid,
+              technique,
+              repCount ?? 0,
+              durationSec
+            );
+          } catch (e) {
+            console.warn("autoLogUserProgress failed", e);
           }
         }
       }
@@ -1120,7 +1210,14 @@ export default function PoseClient({ technique, stance }: Props) {
       }).toString();
       router.push(`/summary?${qp}`);
     }
-  }, [finishSupabaseSession, reps, startedAtMs, technique, router]);
+  }, [
+    finishSupabaseSession,
+    reps,
+    startedAtMs,
+    technique,
+    router,
+    autoLogUserProgress,
+  ]);
 
   /* ---------------------------------- UI ---------------------------------- */
   return (

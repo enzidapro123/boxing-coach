@@ -1,7 +1,7 @@
 // app/progress/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
 
@@ -54,7 +54,21 @@ const dayKeyLocal = (iso: string) => ymdLocal(new Date(iso));
 // Derive a 0–100 score from volume density (reps per min)
 function derivedScore(r: SessionRow): number | null {
   const reps = r.total_reps ?? 0;
-  const mins = minutes(r.duration_sec);
+  const mins = minutes(
+    typeof r.duration_sec === "number"
+      ? r.duration_sec
+      : // fallback: compute from timestamps if available
+      r.started_at && r.finished_at
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(r.finished_at).getTime() -
+              new Date(r.started_at).getTime()) /
+              1000
+          )
+        )
+      : undefined
+  );
   if (!reps) return null;
   const rpm = reps / mins; // reps per minute
   // Map rpm to 0..100 (tunables)
@@ -83,6 +97,9 @@ export default function ProgressPage() {
 
   // user-selectable calendar range (days)
   const [rangeDays, setRangeDays] = useState<1 | 7 | 30>(7);
+
+  // ensure we auto-sync only once per visit
+  const syncedRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -115,6 +132,91 @@ export default function ProgressPage() {
       }
     })();
   }, []);
+
+  /* -------------------- Auto-save accuracy to user_progress -------------------- */
+  useEffect(() => {
+    (async () => {
+      if (loading || syncedRef.current || !rows.length) return;
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      try {
+        // find sessions that actually have something to log
+        const candidates = rows.filter((s) => {
+          const sc = derivedScore(s);
+          const reps = s.total_reps ?? 0;
+          return (typeof sc === "number" && sc >= 0) || reps > 0;
+        });
+
+        if (!candidates.length) {
+          syncedRef.current = true;
+          return;
+        }
+
+        // fetch existing auto-logged entries to avoid duplicates
+        const { data: existing, error: exErr } = await supabase
+          .from("user_progress")
+          .select("notes")
+          .eq("user_id", user.id)
+          .ilike("notes", "auto:%");
+
+        if (exErr) {
+          // if this fails, we still try to insert—worst case, a duplicate row appears
+          console.warn("user_progress existing fetch warning:", exErr.message);
+        }
+
+        const already = new Set<string>();
+        (existing || []).forEach((r: any) => {
+          const note: string = r?.notes ?? "";
+          // expect format "auto:<session_id>"
+          if (note.startsWith("auto:")) already.add(note.slice(5));
+        });
+
+        // build rows to insert
+        const rowsToInsert = candidates
+          .filter((s) => !already.has(s.id))
+          .map((s) => {
+            const sc = derivedScore(s);
+            const payload: Record<string, any> = {
+              user_id: user.id,
+              technique: String(s.technique || "jab"),
+              created_at: new Date().toISOString(),
+              progress_percentage:
+                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
+              accuracy:
+                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
+              total_reps:
+                typeof s.total_reps === "number"
+                  ? Math.max(0, s.total_reps)
+                  : 0,
+              avg_score:
+                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
+              notes: `auto:${s.id}`,
+            };
+            // drop nulls so table defaults can apply
+            Object.keys(payload).forEach((k) => {
+              if (payload[k] === null) delete payload[k];
+            });
+            return payload;
+          });
+
+        if (rowsToInsert.length) {
+          const { error } = await supabase
+            .from("user_progress")
+            .insert(rowsToInsert);
+          if (error) {
+            console.warn("user_progress auto-insert failed:", error.message);
+          }
+        }
+      } finally {
+        // prevent re-running on subsequent renders
+        syncedRef.current = true;
+      }
+    })();
+  }, [loading, rows]);
 
   /* -------------------- Filter by local calendar days -------------------- */
   const filteredRows = useMemo(() => {
@@ -160,7 +262,20 @@ export default function ProgressPage() {
         sCnt = 0;
       for (const r of d.sessions) {
         reps += r.total_reps ?? 0;
-        mins += minutes(r.duration_sec);
+        mins += minutes(
+          typeof r.duration_sec === "number"
+            ? r.duration_sec
+            : r.started_at && r.finished_at
+            ? Math.max(
+                0,
+                Math.round(
+                  (new Date(r.finished_at).getTime() -
+                    new Date(r.started_at).getTime()) /
+                    1000
+                )
+              )
+            : undefined
+        );
         const sc = derivedScore(r);
         if (typeof sc === "number") {
           sSum += sc;
@@ -274,9 +389,18 @@ export default function ProgressPage() {
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* Summary (selected range) */}
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <CardStat label={`Total reps (${rangeDays}d)`} value={String(summary.totalReps)} />
-          <CardStat label={`Avg score (${rangeDays}d)`} value={`${summary.avgScore}%`} />
-          <CardStat label={`Sessions (${rangeDays}d)`} value={String(summary.sessionsCount)} />
+          <CardStat
+            label={`Total reps (${rangeDays}d)`}
+            value={String(summary.totalReps)}
+          />
+          <CardStat
+            label={`Avg score (${rangeDays}d)`}
+            value={`${summary.avgScore}%`}
+          />
+          <CardStat
+            label={`Sessions (${rangeDays}d)`}
+            value={String(summary.sessionsCount)}
+          />
         </section>
 
         {/* Accuracy Estimation Note */}
@@ -289,8 +413,8 @@ export default function ProgressPage() {
             <p className="text-sm text-neutral-700">
               Your performance score is derived from{" "}
               <span className="font-semibold">reps per minute (RPM)</span>.
-              Higher RPM reflects smoother tempo and consistency. Daily
-              averages combine all drills to show your{" "}
+              Higher RPM reflects smoother tempo and consistency. Daily averages
+              combine all drills to show your{" "}
               <span className="font-semibold">average RPM per day</span>.
             </p>
           </div>
@@ -299,10 +423,16 @@ export default function ProgressPage() {
         {/* Day-over-day comparison */}
         {dayCompare && (
           <section className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-6 shadow-sm">
-            <h2 className="text-xl font-semibold mb-4">Day-over-day comparison</h2>
+            <h2 className="text-xl font-semibold mb-4">
+              Day-over-day comparison
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <CompareBadge label="Reps" diff={dayCompare.repsDiff} unit="" />
-              <CompareBadge label="Score" diff={dayCompare.scoreDiff} unit="%" />
+              <CompareBadge
+                label="Score"
+                diff={dayCompare.scoreDiff}
+                unit="%"
+              />
               <CompareBadge label="Time" diff={dayCompare.minDiff} unit="m" />
             </div>
             {dayCompare.tips.length > 0 && (
@@ -332,7 +462,9 @@ export default function ProgressPage() {
                   <div className="text-lg font-semibold">{d.date}</div>
                   <div className="text-sm text-neutral-600">
                     {d.totalReps} reps · {d.totalMinutes}m ·{" "}
-                    {d.avgScore !== null ? `${d.avgScore}% avg score` : "unrated"}
+                    {d.avgScore !== null
+                      ? `${d.avgScore}% avg score`
+                      : "unrated"}
                   </div>
                 </div>
 
@@ -346,14 +478,33 @@ export default function ProgressPage() {
                         className="rounded-xl border border-neutral-200 bg-white px-4 py-3 flex items-center justify-between"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{iconFor(s.technique)}</span>
+                          <span className="text-2xl">
+                            {iconFor(s.technique)}
+                          </span>
                           <div>
-                            <div className="font-semibold">{pretty(s.technique)}</div>
+                            <div className="font-semibold">
+                              {pretty(s.technique)}
+                            </div>
                             <div className="text-xs text-neutral-600">
                               {s.started_at
                                 ? new Date(s.started_at).toLocaleTimeString()
                                 : "—"}{" "}
-                              · {minutes(s.duration_sec)}m · {s.total_reps ?? 0} reps
+                              ·{" "}
+                              {minutes(
+                                typeof s.duration_sec === "number"
+                                  ? s.duration_sec
+                                  : s.started_at && s.finished_at
+                                  ? Math.max(
+                                      0,
+                                      Math.round(
+                                        (new Date(s.finished_at).getTime() -
+                                          new Date(s.started_at).getTime()) /
+                                          1000
+                                      )
+                                    )
+                                  : undefined
+                              )}
+                              m · {s.total_reps ?? 0} reps
                             </div>
                           </div>
                         </div>
@@ -401,7 +552,11 @@ function CompareBadge({
       <div className="mt-1 flex items-baseline gap-2">
         <span
           className={`text-2xl font-bold ${
-            same ? "text-neutral-500" : up ? "text-emerald-600" : "text-rose-600"
+            same
+              ? "text-neutral-500"
+              : up
+              ? "text-emerald-600"
+              : "text-rose-600"
           }`}
         >
           {diff > 0 ? "+" : ""}
