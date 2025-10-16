@@ -17,6 +17,17 @@ type SessionRow = {
   total_reps: number | null;
 };
 
+type UserProgressInsert = {
+  user_id: string;
+  technique: string;
+  created_at: string;
+  total_reps: number;
+  notes: string; // format: "auto:<session_id>"
+  progress_percentage?: number;
+  accuracy?: number;
+  avg_score?: number;
+};
+
 /* --------------------------- Helpers --------------------------- */
 const iconFor = (tech: string) => {
   const t = (tech || "").toLowerCase();
@@ -125,8 +136,12 @@ export default function ProgressPage() {
 
         if (error) throw error;
         setRows((data || []) as SessionRow[]);
-      } catch (e: any) {
-        setErr(e?.message || "Failed to load progress.");
+      } catch (e: unknown) {
+        const msg =
+          e && typeof e === "object" && "message" in e
+            ? String((e as { message?: unknown }).message)
+            : "Failed to load progress.";
+        setErr(msg);
       } finally {
         setLoading(false);
       }
@@ -165,42 +180,46 @@ export default function ProgressPage() {
 
         if (exErr) {
           // if this fails, we still try to insert—worst case, a duplicate row appears
+          // eslint-disable-next-line no-console
           console.warn("user_progress existing fetch warning:", exErr.message);
         }
 
         const already = new Set<string>();
-        (existing || []).forEach((r: any) => {
-          const note: string = r?.notes ?? "";
-          // expect format "auto:<session_id>"
-          if (note.startsWith("auto:")) already.add(note.slice(5));
+        (existing || []).forEach((r: { notes?: string | null }) => {
+          const note = r?.notes ?? "";
+          if (typeof note === "string" && note.startsWith("auto:")) {
+            already.add(note.slice(5));
+          }
         });
 
+        const clampScore = (v: number | null) =>
+          typeof v === "number"
+            ? Math.max(0, Math.min(100, Math.round(v)))
+            : undefined;
+
         // build rows to insert
-        const rowsToInsert = candidates
+        const rowsToInsert: UserProgressInsert[] = candidates
           .filter((s) => !already.has(s.id))
           .map((s) => {
-            const sc = derivedScore(s);
-            const payload: Record<string, any> = {
+            const sc = clampScore(derivedScore(s));
+            const base: UserProgressInsert = {
               user_id: user.id,
               technique: String(s.technique || "jab"),
               created_at: new Date().toISOString(),
-              progress_percentage:
-                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
-              accuracy:
-                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
               total_reps:
                 typeof s.total_reps === "number"
                   ? Math.max(0, s.total_reps)
                   : 0,
-              avg_score:
-                typeof sc === "number" ? Math.max(0, Math.min(100, sc)) : null,
               notes: `auto:${s.id}`,
+              ...(typeof sc === "number"
+                ? {
+                    progress_percentage: sc,
+                    accuracy: sc,
+                    avg_score: sc,
+                  }
+                : {}),
             };
-            // drop nulls so table defaults can apply
-            Object.keys(payload).forEach((k) => {
-              if (payload[k] === null) delete payload[k];
-            });
-            return payload;
+            return base;
           });
 
         if (rowsToInsert.length) {
@@ -208,6 +227,7 @@ export default function ProgressPage() {
             .from("user_progress")
             .insert(rowsToInsert);
           if (error) {
+            // eslint-disable-next-line no-console
             console.warn("user_progress auto-insert failed:", error.message);
           }
         }
@@ -246,7 +266,7 @@ export default function ProgressPage() {
     > = {};
     for (const r of filteredRows) {
       if (!r.started_at) continue;
-      const k = dayKeyLocal(r.started_at); // local day key
+      const k = dayKeyLocal(r.started_at);
       (map[k] ||= {
         date: k,
         sessions: [],
