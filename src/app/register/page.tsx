@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import Modal from "@/app/components/modal";
 import { TermsContent, PrivacyContent } from "@/app/components/legal";
+import { audit } from "@/app/lib/audit";
 
 const EMAIL_OK = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const pwChecks = (p: string) => ({
@@ -60,6 +61,12 @@ export default function RegisterPage() {
             : error.message;
         return setAlert({ type: "error", text: msg });
       }
+      
+      await audit("auth.register", {
+        method: "password",
+        email,
+        confirmed: Boolean(data.user?.email_confirmed_at),
+      });
 
       setAlert({
         type: "success",
