@@ -1,8 +1,9 @@
-// app/check-email/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link"; // 👈 add
+import Image from "next/image"; // 👈 add
 import { supabase } from "@/app/lib/supabaseClient";
 
 export default function CheckEmailPage() {
@@ -40,7 +41,8 @@ export default function CheckEmailPage() {
     setIsSending(false);
 
     if (error) setErr(error.message);
-    else setMsg("A new confirmation link has been sent. Please check your inbox.");
+    else
+      setMsg("A new confirmation link has been sent. Please check your inbox.");
   }
 
   const inputBase =
@@ -62,19 +64,26 @@ export default function CheckEmailPage() {
       {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="/" className="flex items-center hover:opacity-80 transition">
-            <img src="/logo.png" alt="Logo" className="h-11 w-auto" />
-          </a>
+          <Link
+            href="/"
+            className="flex items-center hover:opacity-80 transition"
+          >
+            {/* next/image replaces <img> */}
+            <Image src="/logo.png" alt="Logo" width={44} height={44} priority />
+          </Link>
           <div className="hidden md:flex items-center gap-8">
-            <a href="/login" className="text-neutral-600 hover:text-neutral-900 font-medium">
+            <Link
+              href="/login"
+              className="text-neutral-600 hover:text-neutral-900 font-medium"
+            >
               Login
-            </a>
-            <a
+            </Link>
+            <Link
               href="/register"
               className="rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-xl"
             >
               Register
-            </a>
+            </Link>
           </div>
         </div>
       </nav>
@@ -90,22 +99,32 @@ export default function CheckEmailPage() {
               {email ? (
                 <>
                   {" "}
-                  to <span className="font-semibold text-neutral-900">{email}</span>
+                  to{" "}
+                  <span className="font-semibold text-neutral-900">
+                    {email}
+                  </span>
                 </>
               ) : null}
-              . Please click it to confirm your account, then come back to log in.
+              . Please click it to confirm your account, then come back to log
+              in.
             </p>
 
             {/* Editable email (in case of typo) */}
             <div className="mt-8">
-              <label className="block text-sm mb-1 text-neutral-700">Email</label>
+              <label className="block text-sm mb-1 text-neutral-700">
+                Email
+              </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className={`${inputBase} ${
-                  email.length === 0 ? state.neu : canSend ? state.ok : state.bad
+                  email.length === 0
+                    ? state.neu
+                    : canSend
+                    ? state.ok
+                    : state.bad
                 }`}
               />
 

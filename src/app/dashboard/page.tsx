@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 import { audit } from "@/app/lib/audit";
 
@@ -29,6 +31,19 @@ type MostTrainedViewRow = {
   user_id: string;
   technique: string;
   reps_30d: number;
+};
+
+/** DB row shapes (to avoid `any` in mappings) */
+type DBProgressRow = {
+  user_id: string;
+  technique: string;
+  day: string | Date;
+  reps: number | null;
+};
+
+type DBSessionRow = {
+  id: string;
+  started_at: string;
 };
 
 /* --------------------------- Helpers ----------------------------- */
@@ -90,18 +105,18 @@ export default function DashboardPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
-  const [progress30, setProgress30] = useState<ProgressViewRow[]>([]);
-  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(null);
-
-  // sessions for KPI (30d)
-  const [sessions30, setSessions30] = useState<{ id: string; started_at: string }[]>(
-    []
+  const [_progress30, setProgress30] = useState<ProgressViewRow[]>([]); // intentionally unused in UI
+  const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
+    null
   );
 
+  // sessions for KPI (30d)
+  const [sessions30, setSessions30] = useState<DBSessionRow[]>([]);
+
   // sessions for streak (local-day computation; last 120d)
-  const [sessionsForStreak, setSessionsForStreak] = useState<
-    { id: string; started_at: string }[]
-  >([]);
+  const [sessionsForStreak, setSessionsForStreak] = useState<DBSessionRow[]>(
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -185,24 +200,30 @@ export default function DashboardPage() {
         if (streakSessRes.error) throw streakSessRes.error;
 
         const rec = (recentRes.data ?? []) as RecentViewRow[];
-        const prog = (progRes.data ?? []).map((r: any) => ({
+
+        const prog = ((progRes.data ?? []) as DBProgressRow[]).map((r) => ({
           user_id: r.user_id,
           technique: r.technique,
           day: typeof r.day === "string" ? r.day : dateKeyUTC(r.day),
           reps: r.reps ?? 0,
         })) as ProgressViewRow[];
-        const mt = (
-          mostRes.data && mostRes.data.length > 0 ? mostRes.data[0] : null
-        ) as MostTrainedViewRow | null;
 
-        const sess = (sessRes.data ?? []).map((s: any) => ({
-          id: s.id as string,
-          started_at: s.started_at as string,
+        const mt =
+          mostRes.data && mostRes.data.length > 0
+            ? (mostRes.data[0] as MostTrainedViewRow)
+            : null;
+
+        const sess = ((sessRes.data ?? []) as DBSessionRow[]).map((s) => ({
+          id: s.id,
+          started_at: s.started_at,
         }));
-        const streakSess = (streakSessRes.data ?? []).map((s: any) => ({
-          id: s.id as string,
-          started_at: s.started_at as string,
-        }));
+
+        const streakSess = ((streakSessRes.data ?? []) as DBSessionRow[]).map(
+          (s) => ({
+            id: s.id,
+            started_at: s.started_at,
+          })
+        );
 
         if (!cancelled) {
           setRecent(rec);
@@ -211,8 +232,12 @@ export default function DashboardPage() {
           setSessions30(sess);
           setSessionsForStreak(streakSess);
         }
-      } catch (e: any) {
-        if (!cancelled) setErr(e.message || "Error loading dashboard");
+      } catch (e: unknown) {
+        if (!cancelled) {
+          const msg =
+            e instanceof Error ? e.message : "Error loading dashboard";
+          setErr(msg);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -274,12 +299,19 @@ export default function DashboardPage() {
       {/* Navbar */}
       <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a
+          <Link
             href="/"
             className="flex items-center gap-2 hover:opacity-80 transition"
           >
-            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
-          </a>
+            <Image
+              src="/logo.png"
+              alt="Logo"
+              width={40}
+              height={40}
+              className="h-10 w-auto"
+              priority
+            />
+          </Link>
 
           <UserBadge
             userName={userName}
@@ -308,12 +340,18 @@ export default function DashboardPage() {
         {/* KPI Cards */}
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
           <KpiCard title="Current Streak" value={`${streak}`} icon="🔥" />
-          <KpiCard title="Training Sessions (30d)" value={sessions30Count} icon="📅" />
+          <KpiCard
+            title="Training Sessions (30d)"
+            value={sessions30Count}
+            icon="📅"
+          />
           <KpiCard
             title="Most Trained (30d)"
             value={
               mostTrained
-                ? `${pretty(mostTrained.technique)} · ${mostTrained.reps_30d} reps`
+                ? `${pretty(mostTrained.technique)} · ${
+                    mostTrained.reps_30d
+                  } reps`
                 : "—"
             }
             icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
@@ -328,41 +366,41 @@ export default function DashboardPage() {
             <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-2xl shadow-red-500/10">
               <h3 className="text-xl font-semibold mb-6">Quick actions</h3>
               <div className="flex flex-col gap-4">
-                <a
+                <Link
                   href="/training"
                   className="rounded-xl text-center font-semibold px-6 py-4 bg-gradient-to-r from-red-600 to-orange-500 text-white shadow-lg shadow-red-500/30 hover:scale-[1.02] transition"
                 >
                   🎯 Start Training
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/progress"
                   className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                 >
                   📊 View progress
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/profile"
                   className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                 >
                   ⚙️ Profile Settings
-                </a>
+                </Link>
 
                 {/* Admin-only quick links */}
                 {(role === "it_admin" || role === "super_admin") && (
-                  <a
+                  <Link
                     href="/it_admin"
                     className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                   >
                     🛠 IT Admin
-                  </a>
+                  </Link>
                 )}
                 {role === "super_admin" && (
-                  <a
+                  <Link
                     href="/super_admin"
                     className="rounded-xl text-center font-semibold px-6 py-4 border border-neutral-200 bg-white hover:bg-neutral-50 transition"
                   >
                     👑 Super Admin
-                  </a>
+                  </Link>
                 )}
               </div>
             </div>
@@ -383,7 +421,9 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{iconFor(r.technique)}</span>
+                          <span className="text-2xl">
+                            {iconFor(r.technique)}
+                          </span>
                           <div>
                             <div className="font-semibold text-lg">
                               {pretty(r.technique)}
@@ -434,15 +474,21 @@ function UserBadge({
   avatarUrl: string | null;
   onSignOut: () => Promise<void>;
 }) {
+  const letter = userName ? userName.charAt(0).toUpperCase() : "U";
   return (
     <div className="flex items-center gap-4">
       <span className="text-sm text-neutral-600">{userName}</span>
       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
         {avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+          <Image
+            src={avatarUrl}
+            alt="Profile"
+            width={40}
+            height={40}
+            className="w-full h-full object-cover"
+          />
         ) : (
-          <span>{userName ? userName.charAt(0).toUpperCase() : "U"}</span>
+          <span>{letter}</span>
         )}
       </div>
       <button

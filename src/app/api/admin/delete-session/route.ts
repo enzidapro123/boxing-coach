@@ -1,13 +1,19 @@
 // app/api/admin/delete-session/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
+
+/** Request body validator (no `any`) */
+const DeleteSessionBody = z.object({
+  session_id: z.string().min(1, "session_id is required"),
+});
 
 export async function POST(req: NextRequest) {
   try {
     // 1) Grab Bearer token from header
-    const authHeader = req.headers.get("authorization") || "";
+    const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
     if (!token) {
@@ -15,8 +21,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 2) Build a service-role client so we can verify the token and bypass RLS
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
     if (!url || !serviceKey) {
       return NextResponse.json(
         { error: "Server misconfig: missing SUPABASE env vars" },
@@ -24,7 +30,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+    const admin = createClient(url, serviceKey, {
+      auth: { persistSession: false },
+    });
 
     // 3) Validate the caller with the token
     const { data: authUser, error: authErr } = await admin.auth.getUser(token);
@@ -40,27 +48,43 @@ export async function POST(req: NextRequest) {
       .eq("id", callerId)
       .maybeSingle();
 
-    if (meErr) return NextResponse.json({ error: meErr.message }, { status: 500 });
+    if (meErr) {
+      return NextResponse.json({ error: meErr.message }, { status: 500 });
+    }
     if (me?.user_role !== "super_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // 5) Parse body
-    const { session_id } = await req.json().catch(() => ({}));
-    if (!session_id) {
-      return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
-    }
+    // 5) Parse + validate body (treat req.json as unknown, then Zod-validate)
+    const raw = (await req.json()) as unknown;
+    const { session_id } = DeleteSessionBody.parse(raw);
 
     // 6) Delete session + its reps using service role (bypass RLS)
-    // Order matters if FKs don't cascade.
-    const { error: r1 } = await admin.from("session_reps").delete().eq("session_id", session_id);
-    if (r1) return NextResponse.json({ error: r1.message }, { status: 500 });
+    const { error: repsErr } = await admin
+      .from("session_reps")
+      .delete()
+      .eq("session_id", session_id);
+    if (repsErr) {
+      return NextResponse.json({ error: repsErr.message }, { status: 500 });
+    }
 
-    const { error: r2 } = await admin.from("training_sessions").delete().eq("id", session_id);
-    if (r2) return NextResponse.json({ error: r2.message }, { status: 500 });
+    const { error: sessErr } = await admin
+      .from("training_sessions")
+      .delete()
+      .eq("id", session_id);
+    if (sessErr) {
+      return NextResponse.json({ error: sessErr.message }, { status: 500 });
+    }
 
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err: unknown) {
+    // Properly narrow `unknown` (no `any`)
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+        ? err
+        : "Internal error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
