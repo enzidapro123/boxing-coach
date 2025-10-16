@@ -4,10 +4,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
+import { audit } from "@/app/lib/audit";
 
 /* ---------------- Types ---------------- */
 type Role = "regular" | "it_admin" | "super_admin";
-type UserRow = { id: string; email: string | null; created_at: string | null; username: string | null; user_role: Role };
+type UserRow = {
+  id: string;
+  email: string | null;
+  created_at: string | null;
+  username: string | null;
+  user_role: Role;
+};
 type SessionRow = {
   id: string;
   user_id: string | null;
@@ -34,7 +41,11 @@ export default function SuperAdminPage() {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) return router.replace("/login");
-      const { data, error } = await supabase.from("users").select("user_role").eq("id", uid).maybeSingle();
+      const { data, error } = await supabase
+        .from("users")
+        .select("user_role")
+        .eq("id", uid)
+        .maybeSingle();
       if (error) return router.replace("/");
       const allowed = data?.user_role === "super_admin";
       setOk(!!allowed);
@@ -48,7 +59,7 @@ export default function SuperAdminPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900">
-      {/* Glassy header (consistent with IT Admin) */}
+      {/* Glassy header */}
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -105,12 +116,18 @@ function UsersPanel() {
       setEdits(map);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const filtered = rows.filter((r) => {
     const t = q.trim().toLowerCase();
     if (!t) return true;
-    return r.email?.toLowerCase().includes(t) || r.username?.toLowerCase().includes(t) || r.user_role?.toLowerCase().includes(t);
+    return (
+      r.email?.toLowerCase().includes(t) ||
+      r.username?.toLowerCase().includes(t) ||
+      r.user_role?.toLowerCase().includes(t)
+    );
   });
 
   const onChange = (id: string, patch: Partial<{ username: string; user_role: Role }>) =>
@@ -119,34 +136,104 @@ function UsersPanel() {
   const saveRow = async (u: UserRow) => {
     const e = edits[u.id];
     if (!e) return;
-    if (e.username === (u.username ?? "") && e.user_role === u.user_role) return;
+
+    const prevUsername = u.username ?? "";
+    const prevRole = u.user_role;
+    const changed = e.username !== prevUsername || e.user_role !== prevRole;
+    if (!changed) return;
+
     setBanner(null);
-    const { error } = await supabase.from("users").update({ username: e.username, user_role: e.user_role }).eq("id", u.id);
-    setBanner(error ? { kind: "err", text: error.message } : { kind: "ok", text: "Saved." });
-    if (!error) await load();
+    const { error } = await supabase
+      .from("users")
+      .update({ username: e.username, user_role: e.user_role })
+      .eq("id", u.id);
+
+    if (error) {
+      setBanner({ kind: "err", text: error.message });
+      return;
+    }
+
+    // Audit changes individually (best-effort)
+    try {
+      if (e.user_role !== prevRole) {
+        await audit("admin.user.role_change", {
+          user_id: u.id,
+          from: prevRole,
+          to: e.user_role,
+        });
+      }
+      if (e.username !== prevUsername) {
+        await audit("admin.user.username_change", {
+          user_id: u.id,
+          from: prevUsername,
+          to: e.username,
+        });
+      }
+    } catch {}
+
+    setBanner({ kind: "ok", text: "Saved." });
+    await load();
   };
 
-  const resetPassword = async (email: string | null) => {
-    if (!email) return;
+  const resetPassword = async (u: UserRow) => {
+    if (!u.email) return;
     setBanner(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(u.email, {
       redirectTo: `${location.origin}/reset-password`,
     });
-    setBanner(error ? { kind: "err", text: error.message } : { kind: "ok", text: `Password reset email sent to ${email}.` });
+    if (!error) {
+      try {
+        await audit("admin.user.reset_password", { user_id: u.id, email: u.email });
+      } catch {}
+    }
+    setBanner(
+      error
+        ? { kind: "err", text: error.message }
+        : { kind: "ok", text: `Password reset email sent to ${u.email}.` }
+    );
   };
 
-  // Client-only delete: removes app data (sessions/reps/profile). Deleting the auth user requires server admin creds.
-  const deleteUser = async (user_id: string) => {
-    if (!confirm("Delete this user’s APP DATA (profile, sessions, reps)?\nAuth account remains unless removed via server admin.")) return;
-    setBanner(null);
-    const { error: e1 } = await supabase.from("session_reps").delete().eq("user_id", user_id);
-    if (e1) return setBanner({ kind: "err", text: e1.message });
-    const { error: e2 } = await supabase.from("training_sessions").delete().eq("user_id", user_id);
-    if (e2) return setBanner({ kind: "err", text: e2.message });
-    const { error: e3 } = await supabase.from("users").delete().eq("id", user_id);
-    setBanner(e3 ? { kind: "err", text: e3.message } : { kind: "ok", text: "User app data deleted." });
-    if (!e3) await load();
-  };
+// inside UsersPanel -> deleteUser
+const deleteUser = async (user_id: string) => {
+  if (!confirm("Delete this user COMPLETELY (app data + auth)? This cannot be undone.")) return;
+
+  setBanner(null);
+  try {
+    // get the current access token
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token ?? "";
+
+    const res = await fetch("/api/admin/delete-user", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // <-- Send the token explicitly
+        Authorization: `Bearer ${token}`,
+      },
+      credentials: "include",   // fine to keep; token is what matters now
+      cache: "no-store",
+      body: JSON.stringify({ user_id }),
+    });
+
+    const ct = res.headers.get("content-type") || "";
+    const payload = ct.includes("application/json")
+      ? await res.json()
+      : { error: await res.text() };
+
+    if (!res.ok || payload?.error) {
+      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
+      return;
+    }
+
+    try { await audit("admin.user.delete", { user_id }); } catch {}
+    setBanner({ kind: "ok", text: "User deleted." });
+    await load();
+  } catch (e: any) {
+    setBanner({ kind: "err", text: e?.message || "Delete failed." });
+  }
+};
+
+
 
   return (
     <Card title="Users">
@@ -173,7 +260,9 @@ function UsersPanel() {
             "Username",
             "Role",
             "Created",
-            <span key="a" className="float-right">Actions</span>,
+            <span key="a" className="float-right">
+              Actions
+            </span>,
           ]}
           rows={filtered.map((u) => [
             u.email,
@@ -206,7 +295,7 @@ function UsersPanel() {
                 Save
               </button>
               <button
-                onClick={() => resetPassword(u.email)}
+                onClick={() => resetPassword(u)}
                 className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm"
               >
                 Reset password
@@ -237,7 +326,8 @@ function SessionsPanel() {
   const load = async () => {
     setLoading(true);
     setBanner(null);
-    const since = new Date(); since.setDate(since.getDate() - 30);
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
     const { data, error } = await supabase
       .from("v_admin_sessions_30d")
       .select("*")
@@ -248,33 +338,82 @@ function SessionsPanel() {
     if (error) setBanner({ kind: "err", text: error.message });
     else setRows((data ?? []) as SessionRow[]);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const filtered = rows.filter((r) => {
     const t = q.trim().toLowerCase();
     if (tech && r.technique.toLowerCase() !== tech) return false;
     if (!t) return true;
-    return (r.username ?? "").toLowerCase().includes(t) || (r.email ?? "").toLowerCase().includes(t) || r.technique.toLowerCase().includes(t);
+    return (
+      (r.username ?? "").toLowerCase().includes(t) ||
+      (r.email ?? "").toLowerCase().includes(t) ||
+      r.technique.toLowerCase().includes(t)
+    );
   });
 
-  const deleteSession = async (id: string) => {
-    if (!confirm("Delete this session? (Reps will also be removed)")) return;
-    setBanner(null);
-    const { error: e1 } = await supabase.from("session_reps").delete().eq("session_id", id);
-    if (e1) return setBanner({ kind: "err", text: e1.message });
-    const { error: e2 } = await supabase.from("training_sessions").delete().eq("id", id);
-    setBanner(e2 ? { kind: "err", text: e2.message } : { kind: "ok", text: "Session deleted." });
-    await load();
-  };
+const deleteSession = async (session_id: string) => {
+  if (!confirm("Delete this session? (Reps will also be removed)")) return;
 
-  const techniques = useMemo(() => Array.from(new Set(rows.map((r) => r.technique.toLowerCase()))), [rows]);
+  setBanner(null);
+
+  try {
+    // Get an access token to prove who is calling the API
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      setBanner({ kind: "err", text: "Not signed in." });
+      return;
+    }
+
+    const res = await fetch("/api/admin/delete-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,     // <— important
+      },
+      cache: "no-store",
+      body: JSON.stringify({ session_id }),
+    });
+
+    const ct = res.headers.get("content-type") || "";
+    const payload = ct.includes("application/json") ? await res.json() : { error: await res.text() };
+
+    if (!res.ok || payload?.error) {
+      setBanner({ kind: "err", text: payload?.error || `HTTP ${res.status}` });
+      return;
+    }
+
+    try { await audit("admin.session.delete", { session_id }); } catch {}
+
+    setBanner({ kind: "ok", text: "Session deleted." });
+    await load();
+  } catch (e: any) {
+    setBanner({ kind: "err", text: e?.message || "Delete failed." });
+  }
+};
+
+
+  const techniques = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.technique.toLowerCase()))),
+    [rows]
+  );
 
   return (
     <Card title="Sessions (last 30 days)">
       <div className="mb-3 flex items-center gap-3">
-        <select className="rounded-lg border border-neutral-200 bg-white px-2 py-2" value={tech} onChange={(e) => setTech(e.target.value)}>
+        <select
+          className="rounded-lg border border-neutral-200 bg-white px-2 py-2"
+          value={tech}
+          onChange={(e) => setTech(e.target.value)}
+        >
           <option value="">All techniques</option>
-          {techniques.map((t) => <option key={t} value={t}>{t}</option>)}
+          {techniques.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
         </select>
         <input
           placeholder="Search user/technique…"
@@ -282,7 +421,9 @@ function SessionsPanel() {
           onChange={(e) => setQ(e.target.value)}
           className="w-64 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
         />
-        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">Refresh</button>
+        <button onClick={load} className="ml-auto rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+          Refresh
+        </button>
       </div>
 
       {banner && <Banner kind={banner.kind} text={banner.text} />}
@@ -291,15 +432,29 @@ function SessionsPanel() {
         <TableLoading />
       ) : (
         <Table
-          head={["Started", "User", "Technique", <Right key="r1">Reps</Right>, <Right key="r2">Duration (s)</Right>, <Right key="r3">Actions</Right>]}
+          head={[
+            "Started",
+            "User",
+            "Technique",
+            <Right key="r1">Reps</Right>,
+            <Right key="r2">Duration (s)</Right>,
+            <Right key="r3">Actions</Right>,
+          ]}
           rows={filtered.map((s) => [
             s.started_at ? new Date(s.started_at).toLocaleString() : "—",
             s.username ?? s.email ?? s.user_id ?? "—",
-            <span key="t" className="capitalize">{s.technique}</span>,
+            <span key="t" className="capitalize">
+              {s.technique}
+            </span>,
             <Right key="reps">{s.total_reps ?? 0}</Right>,
             <Right key="dur">{s.duration_sec ?? 0}</Right>,
             <Right key="act">
-              <button onClick={() => deleteSession(s.id)} className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm text-red-600">Delete</button>
+              <button
+                onClick={() => deleteSession(s.id)}
+                className="rounded-lg border border-neutral-200 bg-white px-2 py-1 text-sm text-red-600"
+              >
+                Delete
+              </button>
             </Right>,
           ])}
           empty="No sessions."
@@ -354,7 +509,9 @@ function ReportsPanel() {
         <Table
           head={["Technique", <Right key="s">Sessions</Right>, <Right key="r">Reps</Right>]}
           rows={mix.map((m) => [
-            <span key="t" className="capitalize">{m.technique}</span>,
+            <span key="t" className="capitalize">
+              {m.technique}
+            </span>,
             <Right key="s">{m.sessions}</Right>,
             <Right key="r">{m.reps}</Right>,
           ])}
@@ -401,12 +558,18 @@ function Table({
             rows.map((cells, i) => (
               <tr key={i} className="border-t">
                 {cells.map((c, j) => (
-                  <td key={j} className="p-3 align-top">{c}</td>
+                  <td key={j} className="p-3 align-top">
+                    {c}
+                  </td>
                 ))}
               </tr>
             ))
           ) : (
-            <tr><td className="p-4 text-neutral-500" colSpan={head.length}>{empty}</td></tr>
+            <tr>
+              <td className="p-4 text-neutral-500" colSpan={head.length}>
+                {empty}
+              </td>
+            </tr>
           )}
         </tbody>
       </table>
@@ -417,9 +580,10 @@ function TableLoading() {
   return <div className="text-neutral-500 p-2">Loading…</div>;
 }
 function Banner({ kind, text }: { kind: "ok" | "err"; text: string }) {
-  const cls = kind === "ok"
-    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-    : "bg-red-50 border-red-200 text-red-700";
+  const cls =
+    kind === "ok"
+      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+      : "bg-red-50 border-red-200 text-red-700";
   return <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${cls}`}>{text}</div>;
 }
 function Kpi({ title, value }: { title: string; value: number }) {
