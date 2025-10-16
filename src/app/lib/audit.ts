@@ -1,41 +1,41 @@
+// app/lib/audit.ts
 import { supabase } from "@/app/lib/supabaseClient";
 
 /**
- * Writes an audit row. Tries RPC first; if the function is missing or blocked,
- * falls back to a direct insert (uses RLS "own-insert" policy).
- *
- * Never throws. Logs warnings to console if it fails.
+ * Write an audit row.
+ * 1) If a session exists, try a direct insert (fast path under RLS).
+ * 2) Otherwise, call the RPC (SECURITY DEFINER) so it can still log.
+ * Never throws.
  */
-export async function audit(action: string, details: Record<string, any> = {}): Promise<void> {
+export async function audit(
+  action: string,
+  details: Record<string, any> = {}
+): Promise<void> {
   try {
-    // Try RPC first
+    // Prefer direct insert when a session exists (RLS: user_id must match auth.uid())
+    const { data: sess } = await supabase.auth.getSession();
+    const hasSession = !!sess?.session;
+
+    if (hasSession) {
+      const { data: au } = await supabase.auth.getUser();
+      const uid = au?.user?.id ?? null;
+
+      const { error: insErr } = await supabase.from("audit_logs").insert({
+        user_id: uid, // must equal auth.uid() by policy
+        action,
+        details,
+      });
+
+      if (!insErr) return;
+      console.warn("[audit] direct insert failed, trying RPC:", insErr.message);
+    }
+
+    // Fallback to RPC (works even if no session, if granted)
     const { error: rpcErr } = await supabase.rpc("audit_log", {
       _action: action,
       _details: details,
     });
-
-    // If RPC works, we're done
-    if (!rpcErr) return;
-
-    // If RPC is missing or not executable, fallback to direct insert
-    const notFound = rpcErr.code === "42883" || /function .* does not exist/i.test(rpcErr.message);
-    if (!notFound) {
-      console.warn("[audit] RPC failed, trying fallback insert:", rpcErr.message);
-    }
-
-    // Need current user id for the direct insert (RLS policy requires it)
-    const { data: au } = await supabase.auth.getUser();
-    const uid = au?.user?.id ?? null;
-
-    const { error: insErr } = await supabase.from("audit_logs").insert({
-      user_id: uid,          // RLS: must match auth.uid()
-      action,
-      details,
-    });
-
-    if (insErr) {
-      console.warn("[audit] fallback insert failed:", insErr.message);
-    }
+    if (rpcErr) console.warn("[audit] RPC failed:", rpcErr.message);
   } catch (e: any) {
     console.warn("[audit] unexpected error:", e?.message || e);
   }
