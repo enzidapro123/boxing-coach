@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
+import { logPasswordHistory } from "@/app/lib/passwordHistory"; // ✅ NEW
 
 type Mode = "request" | "reset";
 
@@ -13,7 +14,10 @@ export default function ForgotPasswordPage() {
   const [pw1, setPw1] = useState("");
   const [pw2, setPw2] = useState("");
   const [loading, setLoading] = useState(false);
-  const [banner, setBanner] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [banner, setBanner] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
 
   // Decide our redirect URL (where the email link should land)
   const redirectTo = useMemo(() => {
@@ -62,7 +66,10 @@ export default function ForgotPasswordPage() {
     if (error) {
       const msg = error.message.toLowerCase();
       if (msg.includes("rate")) {
-        setBanner({ kind: "err", text: "Too many attempts. Please try again shortly." });
+        setBanner({
+          kind: "err",
+          text: "Too many attempts. Please try again shortly.",
+        });
       } else {
         setBanner({ kind: "err", text: error.message });
       }
@@ -83,7 +90,10 @@ export default function ForgotPasswordPage() {
     const p2 = pw2.trim();
 
     if (p1.length < 8) {
-      setBanner({ kind: "err", text: "Password must be at least 8 characters." });
+      setBanner({
+        kind: "err",
+        text: "Password must be at least 8 characters.",
+      });
       return;
     }
     if (p1 !== p2) {
@@ -92,17 +102,34 @@ export default function ForgotPasswordPage() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password: p1 });
-    setLoading(false);
+    try {
+      // ✅ get data so we know which user to log for
+      const { data, error } = await supabase.auth.updateUser({ password: p1 });
 
-    if (error) {
-      setBanner({ kind: "err", text: error.message });
-      return;
+      if (error) {
+        setBanner({ kind: "err", text: error.message });
+        return;
+      }
+
+      // ✅ write to password_history (hashed inside helper)
+      if (data?.user) {
+        try {
+          await logPasswordHistory(data.user.id, p1);
+        } catch (logErr) {
+          // optional: don't block the user if logging fails
+          console.error("Failed to log password history:", logErr);
+        }
+      }
+
+      setBanner({
+        kind: "ok",
+        text: "Password updated. You can close this page now.",
+      });
+      setPw1("");
+      setPw2("");
+    } finally {
+      setLoading(false);
     }
-
-    setBanner({ kind: "ok", text: "Password updated. You can close this page now." });
-    setPw1("");
-    setPw2("");
   };
 
   const inputBase =
@@ -122,7 +149,10 @@ export default function ForgotPasswordPage() {
       {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center hover:opacity-80 transition">
+          <Link
+            href="/"
+            className="flex items-center hover:opacity-80 transition"
+          >
             <img src="/logo.png" alt="Logo" className="h-11 w-auto" />
           </Link>
           <Link
@@ -140,7 +170,9 @@ export default function ForgotPasswordPage() {
           <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
           <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-xl shadow-red-500/10">
             <h2 className="text-2xl font-bold mb-2 text-center">
-              {mode === "reset" ? "Set a new password" : "Forgot your password?"}
+              {mode === "reset"
+                ? "Set a new password"
+                : "Forgot your password?"}
             </h2>
             <p className="text-sm text-neutral-600 mb-6 text-center">
               {mode === "reset"
@@ -163,7 +195,9 @@ export default function ForgotPasswordPage() {
             {mode === "request" ? (
               <form onSubmit={sendResetEmail} className="space-y-4" noValidate>
                 <div>
-                  <label className="block text-sm mb-1 text-neutral-700">Email</label>
+                  <label className="block text-sm mb-1 text-neutral-700">
+                    Email
+                  </label>
                   <input
                     type="email"
                     value={email}
@@ -183,7 +217,10 @@ export default function ForgotPasswordPage() {
 
                 <p className="mt-3 text-xs text-center text-neutral-500">
                   Remembered it?{" "}
-                  <Link href="/login" className="underline hover:text-neutral-700">
+                  <Link
+                    href="/login"
+                    className="underline hover:text-neutral-700"
+                  >
                     Back to login
                   </Link>
                 </p>
@@ -191,7 +228,9 @@ export default function ForgotPasswordPage() {
             ) : (
               <form onSubmit={updatePassword} className="space-y-4" noValidate>
                 <div>
-                  <label className="block text-sm mb-1 text-neutral-700">New password</label>
+                  <label className="block text-sm mb-1 text-neutral-700">
+                    New password
+                  </label>
                   <input
                     type="password"
                     value={pw1}
@@ -201,7 +240,9 @@ export default function ForgotPasswordPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1 text-neutral-700">Confirm new password</label>
+                  <label className="block text-sm mb-1 text-neutral-700">
+                    Confirm new password
+                  </label>
                   <input
                     type="password"
                     value={pw2}

@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 import { audit } from "@/app/lib/audit";
+import { useBranding } from "@/app/branding-provider"; // 🔹 NEW
 
 /* ----------------------------- Types ----------------------------- */
 type Role = "regular" | "it_admin" | "super_admin";
@@ -96,6 +97,7 @@ function computeLocalStreakFromSessions(sessionDates: string[]): number {
 /* --------------------------- Component --------------------------- */
 export default function DashboardPage() {
   const router = useRouter();
+  const branding = useBranding(); // 🔹 read global branding (logo + colors)
 
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export default function DashboardPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
-  const [_progress30, setProgress30] = useState<ProgressViewRow[]>([]); // intentionally unused in UI
+  const [_progress30, setProgress30] = useState<ProgressViewRow[]>([]);
   const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
     null
   );
@@ -134,7 +136,7 @@ export default function DashboardPage() {
           return;
         }
 
-        // profile + role (add user_role to the select)
+        // profile + role
         const { data: profile, error: profileErr } = await supabase
           .from("users")
           .select("username, avatar_url, user_role")
@@ -263,7 +265,7 @@ export default function DashboardPage() {
   /* ----------------------------- UI ----------------------------- */
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-900">
+      <div className="min-h-screen grid place-items-center">
         Loading dashboard…
       </div>
     );
@@ -271,7 +273,7 @@ export default function DashboardPage() {
 
   if (err) {
     return (
-      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-900">
+      <div className="min-h-screen grid place-items-center">
         <div className="bg-white/80 backdrop-blur-xl border border-red-100 p-6 rounded-2xl shadow-xl">
           <div className="font-semibold mb-2">Error</div>
           <div className="text-sm text-neutral-600">{err}</div>
@@ -289,7 +291,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+    <div className="min-h-screen relative">
       {/* soft glow orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/25 to-orange-400/25 blur-3xl" />
@@ -304,7 +306,7 @@ export default function DashboardPage() {
             className="flex items-center gap-2 hover:opacity-80 transition"
           >
             <Image
-              src="/logo.png"
+              src={branding?.logoUrl || "/logo.png"} // 🔹 use global logo
               alt="Logo"
               width={40}
               height={40}
@@ -328,7 +330,15 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-6 py-10">
         {/* Welcome */}
         <section className="mb-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-4 py-2 text-xs font-semibold text-red-700 mb-4">
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold mb-4"
+            style={{
+              border: "1px solid var(--primary-color, #ef4444)",
+              background:
+                "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+              color: "#ffffff",
+            }}
+          >
             Dashboard
           </div>
           <h2 className="text-4xl font-bold mb-2">Welcome , {userName} 👊</h2>
@@ -368,7 +378,12 @@ export default function DashboardPage() {
               <div className="flex flex-col gap-4">
                 <Link
                   href="/training"
-                  className="rounded-xl text-center font-semibold px-6 py-4 bg-gradient-to-r from-red-600 to-orange-500 text-white shadow-lg shadow-red-500/30 hover:scale-[1.02] transition"
+                  className="rounded-xl text-center font-semibold px-6 py-4 text-white shadow-lg hover:scale-[1.02] transition"
+                  style={{
+                    background:
+                      "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                    boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+                  }}
                 >
                   🎯 Start Training
                 </Link>
@@ -385,7 +400,6 @@ export default function DashboardPage() {
                   ⚙️ Profile Settings
                 </Link>
 
-                {/* Admin-only quick links */}
                 {(role === "it_admin" || role === "super_admin") && (
                   <Link
                     href="/it_admin"
@@ -511,7 +525,12 @@ function KpiCard({
   icon?: string;
 }) {
   return (
-    <div className="rounded-3xl border border-neutral-200 bg-white/80 backdrop-blur-xl p-6">
+    <div
+      className="rounded-3xl bg-white/80 backdrop-blur-xl p-6 border"
+      style={{
+        borderColor: "var(--primary-color, #e5e7eb)",
+      }}
+    >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-neutral-600">{title}</h3>
         <div className="text-xl">{icon ?? "📈"}</div>

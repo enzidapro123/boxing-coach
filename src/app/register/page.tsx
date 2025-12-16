@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabaseClient";
 import Modal from "@/app/components/modal";
 import { TermsContent, PrivacyContent } from "@/app/components/legal";
 import { audit } from "@/app/lib/audit";
+import { logPasswordHistory } from "@/app/lib/passwordHistory"; // 🔹 NEW
 
 const EMAIL_OK = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const pwChecks = (p: string) => ({
@@ -74,6 +75,11 @@ export default function RegisterPage() {
           : error.message;
         setAlert({ type: "error", text: msg });
         return;
+      }
+
+      // 🔹 NEW: log password into password_history
+      if (data.user) {
+        await logPasswordHistory(data.user.id, pw);
       }
 
       await audit("auth.register", {

@@ -60,7 +60,7 @@ export default function SuperAdminPage() {
   if (!ok) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900">
+    <div className="min-h-screen">
       {/* Glassy header */}
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -84,7 +84,8 @@ export default function SuperAdminPage() {
             </div>
           </div>
 
-          <nav className="flex gap-2">
+          {/* Tabs + Branding link */}
+          <nav className="flex items-center gap-2">
             <Tab
               label="Users"
               active={tab === "users"}
@@ -100,6 +101,14 @@ export default function SuperAdminPage() {
               active={tab === "reports"}
               onClick={() => setTab("reports")}
             />
+
+            {/* Branding button – goes to /super_admin/branding */}
+            <Link
+              href="/super_admin/branding"
+              className="ml-3 px-3 py-1.5 rounded-full text-sm border border-blue-600 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition"
+            >
+              Branding
+            </Link>
           </nav>
         </div>
       </header>
@@ -473,10 +482,7 @@ function SessionsPanel() {
         <select
           className="rounded-lg border border-neutral-200 bg-white px-2 py-2"
           value={tech}
-          onChange={
-            (e: React.ChangeEvent<HTMLSelectElement>) =>
-              setTech(e.currentTarget.value) // ✅ use currentTarget.value
-          }
+          onChange={(e) => setTech(e.currentTarget.value)}
         >
           <option value="">All techniques</option>
           {techniques.map((t) => (
@@ -602,7 +608,7 @@ function ReportsPanel() {
 /* ---------------- Small UI helpers ---------------- */
 function ScreenLoading() {
   return (
-    <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-600">
+    <div className="min-h-screen grid place-items-center text-neutral-600">
       Loading…
     </div>
   );

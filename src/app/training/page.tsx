@@ -5,10 +5,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
+import { useBranding } from "@/app/branding-provider";
 
 export default function TrainingPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  const branding = useBranding();
 
   useEffect(() => {
     const getUser = async () => {
@@ -31,20 +34,41 @@ export default function TrainingPage() {
   }, []);
 
   const techniques = [
-    { name: "Jab", aura: "from-red-600 to-orange-500" },
-    { name: "Cross", aura: "from-orange-600 to-red-500" },
-    { name: "Hook", aura: "from-pink-600 to-rose-500" },
-    { name: "Uppercut", aura: "from-red-500 to-orange-500" },
-    { name: "Guard", aura: "from-amber-600 to-red-500" },
+    { name: "Jab" },
+    { name: "Cross" },
+    { name: "Hook" },
+    { name: "Uppercut" },
+    { name: "Guard" },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+    <div
+      className="min-h-screen text-neutral-900 relative"
+      style={{ background: "var(--background-color, #fefcf5)" }}
+    >
       {/* Floating gradient orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 h-[28rem] w-[28rem] rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
-        <div className="absolute top-1/3 -left-52 h-[34rem] w-[34rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
-        <div className="absolute bottom-10 right-1/4 h-72 w-72 rounded-full bg-gradient-to-br from-red-500/25 to-orange-500/25 blur-3xl" />
+        <div
+          className="absolute -top-40 -right-40 h-[28rem] w-[28rem] rounded-full blur-3xl animate-pulse"
+          style={{
+            background:
+              "radial-gradient(circle at 30% 30%, var(--primary-color, #ef4444), transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute top-1/3 -left-52 h-[34rem] w-[34rem] rounded-full blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle at 20% 20%, var(--secondary-color, #f97316), transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute bottom-10 right-1/4 h-72 w-72 rounded-full blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle at 40% 40%, var(--primary-color, #ef4444), transparent 70%)",
+          }}
+        />
       </div>
 
       {/* Top Navbar */}
@@ -59,7 +83,7 @@ export default function TrainingPage() {
               prefetch
             >
               <Image
-                src="/logo.png"
+                src={branding?.logoUrl || "/logo.png"}
                 alt="Logo"
                 width={40}
                 height={40}
@@ -71,8 +95,12 @@ export default function TrainingPage() {
             {/* Back button */}
             <Link
               href="/dashboard"
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-red-500/30 hover:scale-[1.03] transition"
+              className="px-4 py-2 rounded-lg text-white font-semibold text-sm shadow-lg shadow-black/15 hover:scale-[1.03] transition"
               prefetch
+              style={{
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+              }}
             >
               Back to Dashboard
             </Link>
@@ -122,12 +150,19 @@ export default function TrainingPage() {
               <Link
                 key={t.name}
                 href={`/session/${t.name.toLowerCase()}`}
-                className="group relative rounded-3xl border border-red-100/70 bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
+                className="group relative rounded-3xl border bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
                 prefetch
+                style={{
+                  borderColor: "var(--primary-color, #f97316)",
+                }}
               >
                 {/* Hover aura */}
                 <div
-                  className={`pointer-events-none absolute -inset-1 rounded-3xl bg-gradient-to-br ${t.aura} opacity-0 group-hover:opacity-20 blur transition`}
+                  className="pointer-events-none absolute -inset-1 rounded-3xl opacity-0 group-hover:opacity-25 blur transition"
+                  style={{
+                    background:
+                      "linear-gradient(to bottom right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                  }}
                 />
                 <div className="relative">
                   <div className="flex items-start justify-between">
@@ -138,7 +173,12 @@ export default function TrainingPage() {
                   <p className="mt-2 text-sm text-neutral-600">
                     Begin your {t.name.toLowerCase()} training session.
                   </p>
-                  <div className="mt-6 inline-flex items-center gap-2 rounded-full border-2 border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition group-hover:border-red-200 group-hover:bg-red-50">
+                  <div
+                    className="mt-6 inline-flex items-center gap-2 rounded-full border-2 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition group-hover:bg-red-50"
+                    style={{
+                      borderColor: "var(--primary-color, #ef4444)",
+                    }}
+                  >
                     Start now
                     <svg
                       className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
@@ -163,8 +203,12 @@ export default function TrainingPage() {
           <div className="text-center mt-16">
             <Link
               href="/dashboard"
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-white font-semibold shadow-md hover:scale-105 transition"
+              className="inline-flex items-center gap-2 rounded-full px-8 py-4 text-white font-semibold shadow-md hover:scale-105 transition"
               prefetch
+              style={{
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+              }}
             >
               ← Back to Dashboard
             </Link>

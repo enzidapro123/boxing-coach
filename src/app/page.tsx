@@ -1,10 +1,13 @@
 // src/app/page.tsx (LandingPage)
 "use client";
+
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import Modal from "@/app/components/modal";
 import { TermsContent, PrivacyContent } from "@/app/components/legal";
+import { useBranding } from "@/app/branding-provider"; // 🔹 branding context
 
 export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -12,30 +15,35 @@ export default function LandingPage() {
   const [sentMsg, setSentMsg] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // NEW: modal state for Privacy & Terms
+  // modal state for Privacy & Terms
   const [openPrivacy, setOpenPrivacy] = useState(false);
   const [openTerms, setOpenTerms] = useState(false);
+
+  // 🔹 Current global branding (logo + colors)
+  const branding = useBranding();
 
   // Smart NavLink: use <Link> for internal routes, <a> for hash/externals
   const NavLink = ({
     href,
     children,
     className = "text-neutral-600 hover:text-neutral-900 transition font-medium",
+    style,
   }: {
     href: string;
     children: React.ReactNode;
     className?: string;
+    style?: CSSProperties;
   }) => {
     const isInternal = href.startsWith("/") && !href.startsWith("//");
     if (isInternal) {
       return (
-        <Link href={href} className={className}>
+        <Link href={href} className={className} style={style}>
           {children}
         </Link>
       );
     }
     return (
-      <a href={href} className={className}>
+      <a href={href} className={className} style={style}>
         {children}
       </a>
     );
@@ -63,7 +71,6 @@ export default function LandingPage() {
     }
 
     try {
-      // Try your (optional) API route if you add one later
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,7 +92,6 @@ export default function LandingPage() {
         form.reset();
       }
     } catch {
-      // Fallback to mailto on network error
       const params = new URLSearchParams({
         subject: "Contact: BlazePose Coach",
         body: `From: ${payload.name} <${payload.email}>\n\n${payload.message}`,
@@ -115,7 +121,7 @@ export default function LandingPage() {
             className="flex items-center gap-2 hover:opacity-80 transition"
           >
             <Image
-              src="/logo.png"
+              src={branding?.logoUrl || "/logo.png"} // 🔹 dynamic logo
               alt="Logo"
               width={40}
               height={40}
@@ -131,7 +137,12 @@ export default function LandingPage() {
             <NavLink href="/login">Login</NavLink>
             <NavLink
               href="/register"
-              className="rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-xl"
+              className="rounded-full px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:scale-105 hover:shadow-xl"
+              style={{
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+              }}
             >
               Get started
             </NavLink>
@@ -207,7 +218,12 @@ export default function LandingPage() {
 
             <Link
               href="/register"
-              className="mt-3 block text-center rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg"
+              className="mt-3 block text-center rounded-full px-6 py-3 text-sm font-semibold text-white shadow-lg"
+              style={{
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+              }}
             >
               Get started
             </Link>
@@ -245,7 +261,12 @@ export default function LandingPage() {
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
                 href="/register"
-                className="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-4 text-base font-semibold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105"
+                className="group inline-flex items-center justify-center gap-2 rounded-full px-8 py-4 text-base font-semibold text-white shadow-2xl transition hover:scale-105"
+                style={{
+                  background:
+                    "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                  boxShadow: "0 25px 40px rgba(0,0,0,0.25)",
+                }}
               >
                 Start free
                 <svg
@@ -276,7 +297,6 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
             <div className="relative rounded-3xl border border-red-100/80 bg-white/80 p-4 backdrop-blur-xl shadow-2xl shadow-red-500/20">
               <div className="aspect-video rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 via-orange-50 to-red-50 grid place-items-center">
-                {/* demo video placeholder */}
                 <div className="text-neutral-700 text-sm">Demo coming soon</div>
               </div>
             </div>
@@ -503,7 +523,12 @@ export default function LandingPage() {
             <button
               type="submit"
               disabled={sending}
-              className="w-full mt-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-8 py-3 text-white font-semibold shadow-lg shadow-red-500/30 hover:scale-105 hover:shadow-xl transition disabled:opacity-60"
+              className="w-full mt-2 rounded-full px-8 py-3 text-white font-semibold shadow-lg hover:scale-105 hover:shadow-xl transition disabled:opacity-60"
+              style={{
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                boxShadow: "0 12px 30px rgba(0,0,0,0.2)",
+              }}
             >
               {sending ? "Sending…" : "Send message"}
             </button>
@@ -524,7 +549,12 @@ export default function LandingPage() {
         </p>
         <Link
           href="/register"
-          className="mt-10 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-red-600 to-orange-500 px-10 py-5 text-lg font-semibold text-white shadow-2xl shadow-red-500/40 hover:scale-105 transition"
+          className="mt-10 inline-flex items-center gap-2 rounded-full px-10 py-5 text-lg font-semibold text-white shadow-2xl hover:scale-105 transition"
+          style={{
+            background:
+              "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+            boxShadow: "0 25px 45px rgba(0,0,0,0.25)",
+          }}
         >
           Get started free
           <svg
@@ -547,7 +577,7 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer className="px-6 py-12 bg-gradient-to-b from-white to-neutral-50 text-center text-sm text-neutral-600">
         <Image
-          src="/logo.png"
+          src={branding?.logoUrl || "/logo.png"} // 🔹 dynamic logo here too
           alt="Logo"
           width={40}
           height={40}

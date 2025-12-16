@@ -3,7 +3,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/app/lib/supabaseClient";
+import { useBranding } from "@/app/branding-provider";
 
 type Technique = "jab" | "cross" | "hook" | "uppercut" | "guard" | string;
 
@@ -68,8 +70,7 @@ function derivedScore(r: SessionRow): number | null {
   const mins = minutes(
     typeof r.duration_sec === "number"
       ? r.duration_sec
-      : // fallback: compute from timestamps if available
-      r.started_at && r.finished_at
+      : r.started_at && r.finished_at
       ? Math.max(
           0,
           Math.round(
@@ -111,6 +112,9 @@ export default function ProgressPage() {
 
   // ensure we auto-sync only once per visit
   const syncedRef = useRef(false);
+
+  // 🔹 get current branding (for logo etc.)
+  const branding = useBranding();
 
   useEffect(() => {
     (async () => {
@@ -159,7 +163,6 @@ export default function ProgressPage() {
       if (!user) return;
 
       try {
-        // find sessions that actually have something to log
         const candidates = rows.filter((s) => {
           const sc = derivedScore(s);
           const reps = s.total_reps ?? 0;
@@ -171,7 +174,6 @@ export default function ProgressPage() {
           return;
         }
 
-        // fetch existing auto-logged entries to avoid duplicates
         const { data: existing, error: exErr } = await supabase
           .from("user_progress")
           .select("notes")
@@ -179,8 +181,6 @@ export default function ProgressPage() {
           .ilike("notes", "auto:%");
 
         if (exErr) {
-          // if this fails, we still try to insert—worst case, a duplicate row appears
-          // eslint-disable-next-line no-console
           console.warn("user_progress existing fetch warning:", exErr.message);
         }
 
@@ -197,7 +197,6 @@ export default function ProgressPage() {
             ? Math.max(0, Math.min(100, Math.round(v)))
             : undefined;
 
-        // build rows to insert
         const rowsToInsert: UserProgressInsert[] = candidates
           .filter((s) => !already.has(s.id))
           .map((s) => {
@@ -227,12 +226,10 @@ export default function ProgressPage() {
             .from("user_progress")
             .insert(rowsToInsert);
           if (error) {
-            // eslint-disable-next-line no-console
             console.warn("user_progress auto-insert failed:", error.message);
           }
         }
       } finally {
-        // prevent re-running on subsequent renders
         syncedRef.current = true;
       }
     })();
@@ -241,10 +238,10 @@ export default function ProgressPage() {
   /* -------------------- Filter by local calendar days -------------------- */
   const filteredRows = useMemo(() => {
     if (!rows.length) return [];
-    const end = endOfDayLocal(new Date()); // end of today
+    const end = endOfDayLocal(new Date());
     const begin = startOfDayLocal(
       new Date(Date.now() - (rangeDays - 1) * 24 * 60 * 60 * 1000)
-    ); // start of (today - (N-1))
+    );
     return rows.filter((r) => {
       if (!r.started_at) return false;
       const t = new Date(r.started_at);
@@ -359,14 +356,20 @@ export default function ProgressPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-700">
+      <div
+        className="min-h-screen grid place-items-center text-neutral-700"
+        style={{ background: "var(--background-color, #fefcf5)" }}
+      >
         Loading progress…
       </div>
     );
   }
   if (err) {
     return (
-      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white">
+      <div
+        className="min-h-screen grid place-items-center"
+        style={{ background: "var(--background-color, #fefcf5)" }}
+      >
         <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-red-700 shadow">
           {err}
         </div>
@@ -375,21 +378,53 @@ export default function ProgressPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
+    <div
+      className="min-h-screen text-neutral-900 relative"
+      style={{ background: "var(--background-color, #fefcf5)" }}
+    >
       {/* soft background orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/25 to-orange-400/25 blur-3xl" />
-        <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
+        <div
+          className="absolute -top-40 -right-40 h-96 w-96 rounded-full blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle at 30% 30%, var(--primary-color, #ef4444), transparent 70%)",
+          }}
+        />
+        <div
+          className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full blur-3xl"
+          style={{
+            background:
+              "radial-gradient(circle at 20% 20%, var(--secondary-color, #f97316), transparent 70%)",
+          }}
+        />
       </div>
 
       {/* Glassy header */}
       <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur-xl border-b border-neutral-200/60">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="hidden sm:inline-flex items-center gap-2 hover:opacity-80 transition"
+            >
+              <Image
+                src={branding?.logoUrl || "/logo.png"}
+                alt="Logo"
+                width={32}
+                height={32}
+                className="h-8 w-auto"
+                priority
+              />
+            </Link>
             <Link
               href="/dashboard"
-              className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 transition"
+              className="rounded-full border px-4 py-2 text-sm font-semibold bg-white hover:bg-neutral-50 transition"
               prefetch
+              style={{
+                borderColor: "var(--primary-color, #ef4444)",
+                color: "var(--primary-color, #ef4444)",
+              }}
             >
               ← Back to dashboard
             </Link>
@@ -547,8 +582,14 @@ export default function ProgressPage() {
 /* ------------------------- Small components ------------------------- */
 function CardStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white/85 backdrop-blur-xl p-5 shadow-sm">
-      <div className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-gradient-to-br from-red-600 to-orange-500 opacity-10 blur-2xl" />
+    <div className="relative overflow-hidden rounded-2xl border bg-white/85 backdrop-blur-xl p-5 shadow-sm">
+      <div
+        className="absolute -right-10 -top-10 h-24 w-24 rounded-full opacity-15 blur-2xl"
+        style={{
+          background:
+            "radial-gradient(circle at 30% 30%, var(--primary-color, #ef4444), transparent 70%)",
+        }}
+      />
       <div className="text-xs font-medium text-neutral-600">{label}</div>
       <div className="text-3xl font-extrabold mt-1">{value}</div>
     </div>
@@ -600,26 +641,54 @@ function RangeSwitch({
   onChange: (v: 1 | 7 | 30) => void;
 }) {
   const base = "px-3 py-1.5 rounded-full text-sm border transition";
-  const active = "bg-neutral-900 text-white border-neutral-900";
+  const active = "text-white";
   const idle =
     "bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50";
+
   return (
     <div className="inline-flex gap-2">
       <button
         className={`${base} ${value === 1 ? active : idle}`}
         onClick={() => onChange(1)}
+        style={
+          value === 1
+            ? {
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                borderColor: "transparent",
+              }
+            : undefined
+        }
       >
         1d
       </button>
       <button
         className={`${base} ${value === 7 ? active : idle}`}
         onClick={() => onChange(7)}
+        style={
+          value === 7
+            ? {
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                borderColor: "transparent",
+              }
+            : undefined
+        }
       >
         7d
       </button>
       <button
         className={`${base} ${value === 30 ? active : idle}`}
         onClick={() => onChange(30)}
+        style={
+          value === 30
+            ? {
+                background:
+                  "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                borderColor: "transparent",
+              }
+            : undefined
+        }
       >
         30d
       </button>
