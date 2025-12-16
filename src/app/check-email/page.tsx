@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link"; // 👈 add
-import Image from "next/image"; // 👈 add
+import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/app/lib/supabaseClient";
 
-export default function CheckEmailPage() {
+// Inner component that uses useSearchParams + all your logic
+function CheckEmailInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -68,7 +69,6 @@ export default function CheckEmailPage() {
             href="/"
             className="flex items-center hover:opacity-80 transition"
           >
-            {/* next/image replaces <img> */}
             <Image src="/logo.png" alt="Logo" width={44} height={44} priority />
           </Link>
           <div className="hidden md:flex items-center gap-8">
@@ -159,5 +159,20 @@ export default function CheckEmailPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+// Outer component that wraps everything in Suspense
+export default function CheckEmailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen grid place-items-center text-neutral-700">
+          Loading…
+        </div>
+      }
+    >
+      <CheckEmailInner />
+    </Suspense>
   );
 }
