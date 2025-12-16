@@ -1,6 +1,7 @@
+// src/app/login/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -8,7 +9,23 @@ import { audit } from "@/app/lib/audit";
 
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
+// ---- Wrapper required by Next.js (Suspense + inner component) ----
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-700">
+          Loading…
+        </div>
+      }
+    >
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+// ---- All your existing login logic goes here ----
+function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const resetJustNow = params.get("reset") === "1";
@@ -96,7 +113,8 @@ export default function LoginPage() {
     setNotice(null);
 
     const cleanEmail = email.trim().toLowerCase();
-    if (!isEmail(cleanEmail)) return setError("Enter your registered email first.");
+    if (!isEmail(cleanEmail))
+      return setError("Enter your registered email first.");
 
     setResending(true);
     const { error } = await supabase.auth.resend({
@@ -140,7 +158,10 @@ export default function LoginPage() {
       {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center hover:opacity-80 transition">
+          <Link
+            href="/"
+            className="flex items-center hover:opacity-80 transition"
+          >
             <img src="/logo.png" alt="Logo" className="h-11 w-auto" />
           </Link>
           <Link
@@ -157,7 +178,9 @@ export default function LoginPage() {
         <div className="max-w-md w-full relative">
           <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
           <div className="relative rounded-3xl border border-red-100/80 bg-white/80 backdrop-blur-xl p-8 shadow-xl shadow-red-500/10">
-            <h2 className="text-2xl font-bold mb-2 text-center">Welcome back</h2>
+            <h2 className="text-2xl font-bold mb-2 text-center">
+              Welcome back
+            </h2>
             <p className="text-sm text-neutral-600 mb-6 text-center">
               Log in to continue your boxing training sessions.
             </p>
@@ -175,13 +198,17 @@ export default function LoginPage() {
 
             <form onSubmit={handleLogin} className="space-y-4" noValidate>
               <div>
-                <label className="block text-sm mb-1 text-neutral-700">Email</label>
+                <label className="block text-sm mb-1 text-neutral-700">
+                  Email
+                </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className={`${inputBase} ${email ? (isEmail(email) ? state.ok : state.bad) : state.neu}`}
+                  className={`${inputBase} ${
+                    email ? (isEmail(email) ? state.ok : state.bad) : state.neu
+                  }`}
                 />
               </div>
 
@@ -215,11 +242,13 @@ export default function LoginPage() {
                 />
                 Remember me on this device
               </label>
+
               {resetJustNow && (
-              <div className="mb-4 text-sm rounded-lg p-3 border text-emerald-700 bg-emerald-50 border-emerald-200">
-                Password changed successfully. Please sign in with your new password.
-              </div>
-          )}
+                <div className="mb-4 text-sm rounded-lg p-3 border text-emerald-700 bg-emerald-50 border-emerald-200">
+                  Password changed successfully. Please sign in with your new
+                  password.
+                </div>
+              )}
 
               {canResend && (
                 <button
@@ -233,7 +262,10 @@ export default function LoginPage() {
               )}
 
               <div className="mt-3 text-xs text-right text-neutral-500">
-                <Link href="/forgot-password" className="underline hover:text-neutral-900">
+                <Link
+                  href="/forgot-password"
+                  className="underline hover:text-neutral-900"
+                >
                   Forgot password?
                 </Link>
               </div>
@@ -248,7 +280,10 @@ export default function LoginPage() {
 
               <p className="mt-3 text-xs text-center text-neutral-500">
                 Don’t have an account?{" "}
-                <Link href="/register" className="underline hover:text-neutral-700">
+                <Link
+                  href="/register"
+                  className="underline hover:text-neutral-700"
+                >
                   Sign up
                 </Link>
               </p>
