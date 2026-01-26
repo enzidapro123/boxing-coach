@@ -85,7 +85,7 @@ export default function LandingPage() {
         });
         window.location.href = `mailto:rjbdelpilar@gmail.com?${params.toString()}`;
         setSentMsg(
-          "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com"
+          "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com",
         );
       } else {
         setSentMsg("Thanks! Your message has been sent.");
@@ -98,7 +98,7 @@ export default function LandingPage() {
       });
       window.location.href = `mailto:rjbdelpilar@gmail.com?${params.toString()}`;
       setSentMsg(
-        "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com."
+        "Opening your email client… If nothing opens, email rjbdelpilar@gmail.com.",
       );
     } finally {
       setSending(false);
@@ -297,7 +297,15 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
             <div className="relative rounded-3xl border border-red-100/80 bg-white/80 p-4 backdrop-blur-xl shadow-2xl shadow-red-500/20">
               <div className="aspect-video rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 via-orange-50 to-red-50 grid place-items-center">
-                <div className="text-neutral-700 text-sm">Demo coming soon</div>
+                <div className="aspect-video rounded-2xl border border-red-100 overflow-hidden bg-black">
+                  <iframe
+                    className="w-full h-full"
+                    src="https://www.youtube.com/embed/urvrjzQMF8Q?rel=0&modestbranding=1"
+                    title="KnockTech Demo"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
               </div>
             </div>
           </div>
