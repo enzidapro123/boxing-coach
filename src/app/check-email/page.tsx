@@ -29,16 +29,20 @@ function CheckEmailInner() {
     if (!canSend) return setErr("Please enter a valid email address.");
 
     setIsSending(true);
+
+    // ✅ Always use the configured site URL (production) or fallback to localhost (dev)
+    const siteUrl = (
+      process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+    ).replace(/\/$/, "");
+
     const { error } = await supabase.auth.resend({
       type: "signup",
       email,
       options: {
-        emailRedirectTo:
-          typeof window !== "undefined"
-            ? `${window.location.origin}/auth/callback`
-            : undefined,
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     });
+
     setIsSending(false);
 
     if (error) setErr(error.message);
@@ -123,8 +127,8 @@ function CheckEmailInner() {
                   email.length === 0
                     ? state.neu
                     : canSend
-                    ? state.ok
-                    : state.bad
+                      ? state.ok
+                      : state.bad
                 }`}
               />
 
