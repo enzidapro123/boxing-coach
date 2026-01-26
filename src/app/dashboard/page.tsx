@@ -63,7 +63,7 @@ const pretty = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 function dateKeyUTC(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   return new Date(
-    Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate())
+    Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()),
   )
     .toISOString()
     .slice(0, 10);
@@ -94,6 +94,24 @@ function computeLocalStreakFromSessions(sessionDates: string[]): number {
   return streak;
 }
 
+/**
+ * Normalize avatar URL:
+ * - If already http(s), use as-is
+ * - If saved as a storage path like "avatars/xxx.png" or "xxx.png", convert to public URL
+ *
+ * NOTE: bucket name assumed "avatars". If yours is different, change it here.
+ */
+function resolveAvatarUrl(raw: string | null): string | null {
+  if (!raw) return null;
+
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+
+  const path = raw.startsWith("avatars/") ? raw.replace(/^avatars\//, "") : raw;
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data?.publicUrl ?? null;
+}
+
 /* --------------------------- Component --------------------------- */
 export default function DashboardPage() {
   const router = useRouter();
@@ -109,7 +127,7 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<RecentViewRow[]>([]);
   const [_progress30, setProgress30] = useState<ProgressViewRow[]>([]);
   const [mostTrained, setMostTrained] = useState<MostTrainedViewRow | null>(
-    null
+    null,
   );
 
   // sessions for KPI (30d)
@@ -117,7 +135,7 @@ export default function DashboardPage() {
 
   // sessions for streak (local-day computation; last 120d)
   const [sessionsForStreak, setSessionsForStreak] = useState<DBSessionRow[]>(
-    []
+    [],
   );
 
   useEffect(() => {
@@ -131,6 +149,7 @@ export default function DashboardPage() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
+
         if (!user) {
           router.replace("/login");
           return;
@@ -147,7 +166,7 @@ export default function DashboardPage() {
 
         if (!cancelled) {
           setUserName(profile?.username ?? user.email ?? "User");
-          setAvatarUrl(profile?.avatar_url ?? null);
+          setAvatarUrl(resolveAvatarUrl(profile?.avatar_url ?? null));
           setRole((profile?.user_role as Role) ?? "regular");
         }
 
@@ -224,7 +243,7 @@ export default function DashboardPage() {
           (s) => ({
             id: s.id,
             started_at: s.started_at,
-          })
+          }),
         );
 
         if (!cancelled) {
@@ -255,9 +274,9 @@ export default function DashboardPage() {
   const streak = useMemo(
     () =>
       computeLocalStreakFromSessions(
-        sessionsForStreak.map((s) => s.started_at).filter(Boolean) as string[]
+        sessionsForStreak.map((s) => s.started_at).filter(Boolean) as string[],
       ),
-    [sessionsForStreak]
+    [sessionsForStreak],
   );
 
   const sessions30Count = sessions30.length;
@@ -359,9 +378,7 @@ export default function DashboardPage() {
             title="Most Trained (30d)"
             value={
               mostTrained
-                ? `${pretty(mostTrained.technique)} · ${
-                    mostTrained.reps_30d
-                  } reps`
+                ? `${pretty(mostTrained.technique)} · ${mostTrained.reps_30d} reps`
                 : "—"
             }
             icon={mostTrained ? iconFor(mostTrained.technique) : "🥊"}
@@ -489,22 +506,32 @@ function UserBadge({
   onSignOut: () => Promise<void>;
 }) {
   const letter = userName ? userName.charAt(0).toUpperCase() : "U";
+  const [imgOk, setImgOk] = useState(true);
+
+  useEffect(() => {
+    setImgOk(true);
+  }, [avatarUrl]);
+
   return (
     <div className="flex items-center gap-4">
       <span className="text-sm text-neutral-600">{userName}</span>
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold overflow-hidden ring-2 ring-red-200/60">
-        {avatarUrl ? (
-          <Image
+
+      <div className="relative w-10 h-10 rounded-full overflow-hidden ring-2 ring-red-200/60 bg-neutral-200">
+        {avatarUrl && imgOk ? (
+          <img
             src={avatarUrl}
-            alt="Profile"
-            width={40}
-            height={40}
+            alt=""
             className="w-full h-full object-cover"
+            onError={() => setImgOk(false)}
+            referrerPolicy="no-referrer"
           />
         ) : (
-          <span>{letter}</span>
+          <div className="w-full h-full bg-gradient-to-br from-red-600 to-orange-500 text-white flex items-center justify-center font-bold">
+            {letter}
+          </div>
         )}
       </div>
+
       <button
         onClick={onSignOut}
         className="px-3 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm transition"
