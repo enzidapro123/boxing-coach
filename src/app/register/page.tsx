@@ -59,8 +59,9 @@ export default function RegisterPage() {
           // ✅ FIXED: Always redirect verification back to callback with signup + next=/login
           emailRedirectTo:
             typeof window !== "undefined"
-              ? `${window.location.origin}/auth/callback?type=signup&next=/login`
+              ? `${window.location.origin}/auth/callback?next=/login`
               : undefined,
+
           data: {
             username,
             privacy_agreed: !!agree,

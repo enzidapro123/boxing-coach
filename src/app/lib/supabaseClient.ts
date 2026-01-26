@@ -46,10 +46,16 @@ function pickStore(): Storage | null {
 // Define options type for clarity
 const options: SupabaseClientOptions<"public"> = {
   auth: {
+    // ✅ IMPORTANT: Use PKCE so email links return ?code=... (not #access_token=...)
+    flowType: "pkce",
+
+    // keep your custom storage + remember-me behavior
     storage: smartStorage,
     storageKey: SUPABASE_STORAGE_KEY,
     persistSession: true,
     autoRefreshToken: true,
+
+    // ✅ keep this true so supabase-js processes the ?code=... in the URL
     detectSessionInUrl: true,
   },
 };
@@ -57,5 +63,5 @@ const options: SupabaseClientOptions<"public"> = {
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  options
+  options,
 );
