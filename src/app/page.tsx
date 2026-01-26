@@ -194,7 +194,7 @@ export default function LandingPage() {
                 {label}
               </a>
             ))}
-            {/* internal route: use Link */}
+
             <Link
               href="/login"
               className="block px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
@@ -202,7 +202,6 @@ export default function LandingPage() {
               Login
             </Link>
 
-            {/* Mobile: open modals for Privacy / Terms */}
             <button
               onClick={() => setOpenPrivacy(true)}
               className="mt-3 block w-full text-left px-3 py-2 rounded-lg text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 font-medium transition"
@@ -283,6 +282,7 @@ export default function LandingPage() {
                   />
                 </svg>
               </Link>
+
               <a
                 href="#how-it-works"
                 className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-neutral-200 bg-white px-8 py-4 text-base font-semibold text-neutral-900 hover:border-red-200 hover:bg-red-50 transition"
@@ -292,20 +292,19 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Visual side */}
+          {/* Visual side (FIXED + BIGGER VIDEO) */}
           <div className="relative">
             <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
-            <div className="relative rounded-3xl border border-red-100/80 bg-white/80 p-4 backdrop-blur-xl shadow-2xl shadow-red-500/20">
-              <div className="aspect-video rounded-2xl border border-red-100 bg-gradient-to-br from-red-50 via-orange-50 to-red-50 grid place-items-center">
-                <div className="aspect-video rounded-2xl border border-red-100 overflow-hidden bg-black">
-                  <iframe
-                    className="w-full h-full"
-                    src="https://www.youtube.com/embed/urvrjzQMF8Q?rel=0&modestbranding=1"
-                    title="KnockTech Demo"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  />
-                </div>
+
+            <div className="relative rounded-3xl border border-red-100/80 bg-white/80 p-3 backdrop-blur-xl shadow-2xl shadow-red-500/20">
+              <div className="rounded-2xl border border-red-100 overflow-hidden bg-black h-[260px] sm:h-[320px] md:h-[380px] lg:h-[430px]">
+                <iframe
+                  className="w-full h-full"
+                  src="https://www.youtube.com/embed/urvrjzQMF8Q?rel=0&modestbranding=1"
+                  title="KnockTech Demo"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
               </div>
             </div>
           </div>
@@ -484,6 +483,7 @@ export default function LandingPage() {
                 required
               />
             </div>
+
             <div>
               <label
                 htmlFor="email"
@@ -500,6 +500,7 @@ export default function LandingPage() {
                 required
               />
             </div>
+
             <div>
               <label
                 htmlFor="message"
@@ -579,7 +580,6 @@ export default function LandingPage() {
             />
           </svg>
         </Link>
-        <p className="mt-6 text-sm text-neutral-500"></p>
       </section>
 
       {/* FOOTER */}
@@ -597,7 +597,6 @@ export default function LandingPage() {
           <NavLink href="#how-it-works">How it works</NavLink>
           <NavLink href="#contact">Contact</NavLink>
 
-          {/* Open modals instead of routing */}
           <button
             onClick={() => setOpenPrivacy(true)}
             className="text-neutral-600 hover:text-neutral-900 transition font-medium"
