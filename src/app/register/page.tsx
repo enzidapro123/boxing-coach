@@ -56,9 +56,10 @@ export default function RegisterPage() {
         email: email.trim().toLowerCase(),
         password: pw,
         options: {
+          // ✅ FIXED: Always redirect verification back to callback with signup + next=/login
           emailRedirectTo:
             typeof window !== "undefined"
-              ? `${window.location.origin}/auth/callback?type=signup`
+              ? `${window.location.origin}/auth/callback?type=signup&next=/login`
               : undefined,
           data: {
             username,
@@ -92,6 +93,7 @@ export default function RegisterPage() {
         type: "success",
         text: "We sent a confirmation link to your email. Please verify to continue.",
       });
+
       router.push(`/check-email?email=${encodeURIComponent(email)}`);
     } finally {
       setLoading(false);
@@ -221,12 +223,12 @@ export default function RegisterPage() {
                       {k === "len"
                         ? "8+ chars"
                         : k === "up"
-                        ? "Uppercase"
-                        : k === "lo"
-                        ? "Lowercase"
-                        : k === "di"
-                        ? "Number"
-                        : "Special char"}
+                          ? "Uppercase"
+                          : k === "lo"
+                            ? "Lowercase"
+                            : k === "di"
+                              ? "Number"
+                              : "Special char"}
                     </li>
                   ))}
                 </ul>

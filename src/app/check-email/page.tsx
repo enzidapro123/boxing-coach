@@ -12,14 +12,28 @@ function CheckEmailInner() {
   const searchParams = useSearchParams();
 
   const emailFromQuery = searchParams.get("email") || "";
+  const errorFromQuery = searchParams.get("error") || "";
+
   const [email, setEmail] = useState(emailFromQuery);
   const [isSending, setIsSending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(
+    errorFromQuery ? decodeURIComponent(errorFromQuery) : null,
+  );
 
   useEffect(() => {
     if (emailFromQuery) setEmail(emailFromQuery);
   }, [emailFromQuery]);
+
+  useEffect(() => {
+    if (errorFromQuery) {
+      try {
+        setErr(decodeURIComponent(errorFromQuery));
+      } catch {
+        setErr(errorFromQuery);
+      }
+    }
+  }, [errorFromQuery]);
 
   const canSend = useMemo(() => !!email && /\S+@\S+\.\S+/.test(email), [email]);
 
@@ -39,7 +53,8 @@ function CheckEmailInner() {
       type: "signup",
       email,
       options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
+        // ✅ FIXED: Match the same redirect used in Register
+        emailRedirectTo: `${siteUrl}/auth/callback?type=signup&next=/login`,
       },
     });
 
