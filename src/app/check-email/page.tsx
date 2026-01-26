@@ -6,7 +6,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "@/app/lib/supabaseClient";
 
-// Inner component that uses useSearchParams + all your logic
+function safeDecode(v: string) {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 function CheckEmailInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -18,7 +25,7 @@ function CheckEmailInner() {
   const [isSending, setIsSending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(
-    errorFromQuery ? decodeURIComponent(errorFromQuery) : null,
+    errorFromQuery ? safeDecode(errorFromQuery) : null,
   );
 
   useEffect(() => {
@@ -26,13 +33,7 @@ function CheckEmailInner() {
   }, [emailFromQuery]);
 
   useEffect(() => {
-    if (errorFromQuery) {
-      try {
-        setErr(decodeURIComponent(errorFromQuery));
-      } catch {
-        setErr(errorFromQuery);
-      }
-    }
+    if (errorFromQuery) setErr(safeDecode(errorFromQuery));
   }, [errorFromQuery]);
 
   const canSend = useMemo(() => !!email && /\S+@\S+\.\S+/.test(email), [email]);
@@ -44,7 +45,6 @@ function CheckEmailInner() {
 
     setIsSending(true);
 
-    // ✅ Always use the configured site URL (production) or fallback to localhost (dev)
     const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
     ).replace(/\/$/, "");
@@ -53,8 +53,8 @@ function CheckEmailInner() {
       type: "signup",
       email,
       options: {
-        // ✅ FIXED: Match the same redirect used in Register
-        emailRedirectTo: `${siteUrl}/auth/callback?type=signup&next=/login`,
+        // ✅ PKCE-friendly redirect
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     });
 
@@ -75,13 +75,11 @@ function CheckEmailInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
-      {/* Floating gradient orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
         <div className="absolute top-1/3 -left-40 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
       </div>
 
-      {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link
@@ -107,7 +105,6 @@ function CheckEmailInner() {
         </div>
       </nav>
 
-      {/* Card */}
       <main className="px-6 pt-32 pb-20 flex justify-center">
         <div className="max-w-md w-full relative">
           <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
@@ -124,11 +121,9 @@ function CheckEmailInner() {
                   </span>
                 </>
               ) : null}
-              . Please click it to confirm your account, then come back to log
-              in.
+              . Please click it to confirm your account.
             </p>
 
-            {/* Editable email (in case of typo) */}
             <div className="mt-8">
               <label className="block text-sm mb-1 text-neutral-700">
                 Email
@@ -181,7 +176,6 @@ function CheckEmailInner() {
   );
 }
 
-// Outer component that wraps everything in Suspense
 export default function CheckEmailPage() {
   return (
     <Suspense

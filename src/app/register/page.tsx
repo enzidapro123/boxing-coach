@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabaseClient";
 import Modal from "@/app/components/modal";
 import { TermsContent, PrivacyContent } from "@/app/components/legal";
 import { audit } from "@/app/lib/audit";
-import { logPasswordHistory } from "@/app/lib/passwordHistory"; // 🔹 NEW
+import { logPasswordHistory } from "@/app/lib/passwordHistory";
 
 const EMAIL_OK = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const pwChecks = (p: string) => ({
@@ -45,23 +45,23 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAlert(null);
-
     if (!canSubmit) return;
 
     setLoading(true);
     try {
       const consent_date = agree ? new Date().toISOString() : null;
 
+      const emailRedirectTo =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/auth/callback`
+          : undefined;
+
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password: pw,
         options: {
-          // ✅ FIXED: Always redirect verification back to callback with signup + next=/login
-          emailRedirectTo:
-            typeof window !== "undefined"
-              ? `${window.location.origin}/auth/callback?next=/login`
-              : undefined,
-
+          // ✅ PKCE-friendly redirect (server route.ts reads ?code=...)
+          emailRedirectTo,
           data: {
             username,
             privacy_agreed: !!agree,
@@ -79,7 +79,7 @@ export default function RegisterPage() {
         return;
       }
 
-      // 🔹 NEW: log password into password_history
+      // Log password history if you really need this
       if (data.user) {
         await logPasswordHistory(data.user.id, pw);
       }
@@ -111,13 +111,11 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
-      {/* floating orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
         <div className="absolute top-1/3 -left-40 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
       </div>
 
-      {/* navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link
@@ -142,7 +140,6 @@ export default function RegisterPage() {
         </div>
       </nav>
 
-      {/* main form */}
       <main className="px-6 pt-32 pb-20 flex justify-center">
         <div className="max-w-md w-full relative">
           <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
