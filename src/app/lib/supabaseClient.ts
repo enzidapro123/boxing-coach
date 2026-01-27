@@ -39,23 +39,30 @@ const smartStorage: Storage = {
 
 function pickStore(): Storage | null {
   if (typeof window === "undefined") return null;
-  const remember = localStorage.getItem(REMEMBER_KEY) === "true";
-  return remember ? window.localStorage : window.sessionStorage;
+
+  try {
+    // ✅ if REMEMBER_KEY is missing, default to TRUE to avoid storage “switch flicker”
+    const raw = window.localStorage.getItem(REMEMBER_KEY);
+    const remember = raw === null ? true : raw === "true";
+    return remember ? window.localStorage : window.sessionStorage;
+  } catch {
+    // fallback (in case browser blocks storage)
+    return window.localStorage;
+  }
 }
 
 // Define options type for clarity
 const options: SupabaseClientOptions<"public"> = {
   auth: {
-    // ✅ IMPORTANT: Use PKCE so email links return ?code=... (not #access_token=...)
+    // ✅ PKCE so email links return ?code=...
     flowType: "pkce",
 
-    // keep your custom storage + remember-me behavior
     storage: smartStorage,
     storageKey: SUPABASE_STORAGE_KEY,
     persistSession: true,
     autoRefreshToken: true,
 
-    // ✅ keep this true so supabase-js processes the ?code=... in the URL
+    // ✅ DO NOT auto-detect session in URL because we manually exchange code in /login
     detectSessionInUrl: false,
   },
 };

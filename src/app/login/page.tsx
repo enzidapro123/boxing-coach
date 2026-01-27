@@ -1,7 +1,6 @@
-// src/app/login/page.tsx
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -9,7 +8,6 @@ import { audit } from "@/app/lib/audit";
 
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-// ---- Wrapper required by Next.js (Suspense + inner component) ----
 export default function LoginPage() {
   return (
     <Suspense
@@ -24,24 +22,24 @@ export default function LoginPage() {
   );
 }
 
-// ---- All your existing login logic goes here ----
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
+
   const resetJustNow = params.get("reset") === "1";
+  const code = params.get("code"); // ✅ comes from /auth/callback forwarding
   const redirectTo = useMemo(
     () => params.get("redirectedFrom") || params.get("next") || "/dashboard",
-    [params]
+    [params],
   );
 
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
 
-  // default unchecked; read last choice
   const [rememberMe, setRememberMe] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("rememberMe") === "true";
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("rememberMe") !== "false"; // default TRUE
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -49,24 +47,69 @@ function LoginInner() {
   const [canResend, setCanResend] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [booting, setBooting] = useState(true);
 
-  // Persist rememberMe immediately (the client reads it on each auth call)
+  const exchangedOnce = useRef(false);
+
+  // Persist rememberMe
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("rememberMe", rememberMe ? "true" : "false");
     }
   }, [rememberMe]);
 
-  // If already logged in, go to redirect
+  // ✅ If we arrived from email confirmation with ?code=..., exchange in browser storage
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        router.replace(redirectTo);
-        router.refresh();
+    let alive = true;
+
+    const run = async () => {
+      try {
+        setError(null);
+
+        // 1) if we have a code and haven't exchanged yet, exchange it
+        if (code && !exchangedOnce.current) {
+          exchangedOnce.current = true;
+
+          const { error: exErr } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (exErr) {
+            // show error but don't loop
+            if (!alive) return;
+            setError(
+              "Email confirmation failed. Please resend a new verification link.",
+            );
+            setBooting(false);
+            return;
+          }
+
+          // exchange succeeded -> go where you want
+          if (!alive) return;
+          router.replace(redirectTo);
+          return;
+        }
+
+        // 2) normal boot: if session exists, go redirectTo
+        const { data } = await supabase.auth.getSession();
+        if (!alive) return;
+
+        if (data.session) {
+          router.replace(redirectTo);
+          return;
+        }
+
+        setBooting(false);
+      } catch {
+        if (!alive) return;
+        setBooting(false);
       }
-    })();
-  }, [redirectTo, router]);
+    };
+
+    run();
+
+    return () => {
+      alive = false;
+    };
+  }, [code, redirectTo, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,7 +121,6 @@ function LoginInner() {
     if (!isEmail(cleanEmail)) return setError("Please enter a valid email.");
     if (!pw) return setError("Password is required.");
 
-    // Make sure the client sees the latest rememberMe choice
     localStorage.setItem("rememberMe", rememberMe ? "true" : "false");
 
     setLoading(true);
@@ -87,6 +129,7 @@ function LoginInner() {
       password: pw,
     });
     setLoading(false);
+
     await audit("auth.login", { method: "password" });
 
     if (error) {
@@ -103,9 +146,7 @@ function LoginInner() {
       return setError(error.message);
     }
 
-    // success
     router.replace(redirectTo);
-    router.refresh();
   };
 
   const resendVerification = async () => {
@@ -123,18 +164,19 @@ function LoginInner() {
       options: {
         emailRedirectTo:
           typeof window !== "undefined"
-            ? `${window.location.origin}/auth/callback`
+            ? `${window.location.origin}/auth/callback?next=/login`
             : undefined,
       },
     });
     setResending(false);
 
-    if (error)
+    if (error) {
       return setError(
         error.message.includes("too many")
           ? "Too many attempts. Please wait a minute."
-          : error.message
+          : error.message,
       );
+    }
 
     setNotice("Confirmation email sent. Check your inbox.");
   };
@@ -147,15 +189,22 @@ function LoginInner() {
     neu: "border-neutral-200 focus:ring-orange-400",
   };
 
+  // optional: show a tiny boot loader while exchanging code
+  if (booting) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-neutral-50 to-white text-neutral-700">
+        Finishing sign-in…
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white text-neutral-900 relative">
-      {/* Floating orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gradient-to-br from-red-400/30 to-orange-400/30 blur-3xl animate-pulse" />
         <div className="absolute top-1/3 -left-40 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20 blur-3xl" />
       </div>
 
-      {/* Navbar */}
       <nav className="fixed top-0 z-50 w-full border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link
@@ -173,7 +222,6 @@ function LoginInner() {
         </div>
       </nav>
 
-      {/* Login card */}
       <main className="px-6 pt-32 pb-20 flex justify-center">
         <div className="max-w-md w-full relative">
           <div className="absolute inset-0 bg-gradient-to-br from-red-300/40 to-orange-300/40 rounded-3xl blur-3xl" />
@@ -206,9 +254,7 @@ function LoginInner() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className={`${inputBase} ${
-                    email ? (isEmail(email) ? state.ok : state.bad) : state.neu
-                  }`}
+                  className={`${inputBase} ${email ? (isEmail(email) ? state.ok : state.bad) : state.neu}`}
                 />
               </div>
 
@@ -232,7 +278,6 @@ function LoginInner() {
                 />
               </div>
 
-              {/* Remember me */}
               <label className="flex items-center gap-2 text-sm text-neutral-700 select-none">
                 <input
                   type="checkbox"

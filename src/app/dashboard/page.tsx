@@ -146,12 +146,11 @@ export default function DashboardPage() {
         setErr(null);
         setLoading(true);
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData.session?.user;
 
         if (!user) {
-          router.replace("/login");
+          router.replace("/login?redirectedFrom=/dashboard");
           return;
         }
 
