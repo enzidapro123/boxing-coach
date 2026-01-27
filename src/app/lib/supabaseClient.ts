@@ -56,7 +56,7 @@ const options: SupabaseClientOptions<"public"> = {
     autoRefreshToken: true,
 
     // ✅ keep this true so supabase-js processes the ?code=... in the URL
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
   },
 };
 

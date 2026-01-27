@@ -53,7 +53,7 @@ export default function RegisterPage() {
 
       const emailRedirectTo =
         typeof window !== "undefined"
-          ? `${window.location.origin}/auth/callback`
+          ? `${window.location.origin}/login`
           : undefined;
 
       const { data, error } = await supabase.auth.signUp({
@@ -61,7 +61,10 @@ export default function RegisterPage() {
         password: pw,
         options: {
           // ✅ PKCE-friendly redirect (server route.ts reads ?code=...)
-          emailRedirectTo,
+          emailRedirectTo:
+            typeof window !== "undefined"
+              ? `${window.location.origin}/login`
+              : undefined,
           data: {
             username,
             privacy_agreed: !!agree,
