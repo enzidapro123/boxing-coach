@@ -240,7 +240,7 @@ export default function LandingPage() {
                 <span className="absolute h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
                 <span className="relative rounded-full h-2 w-2 bg-red-600" />
               </span>
-              Live AI feedback
+              Live feedback
             </div>
 
             <h1 className="text-5xl md:text-7xl font-bold leading-tight tracking-tight">
