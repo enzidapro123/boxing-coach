@@ -47,7 +47,7 @@ const minutes = (sec?: number | null) =>
 // ----- Local calendar day utilities (fixes UTC drift) -----
 const ymdLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
+    d.getDate(),
   ).padStart(2, "0")}`;
 
 const startOfDayLocal = (d = new Date()) => {
@@ -71,20 +71,22 @@ function derivedScore(r: SessionRow): number | null {
     typeof r.duration_sec === "number"
       ? r.duration_sec
       : r.started_at && r.finished_at
-      ? Math.max(
-          0,
-          Math.round(
-            (new Date(r.finished_at).getTime() -
-              new Date(r.started_at).getTime()) /
-              1000
+        ? Math.max(
+            0,
+            Math.round(
+              (new Date(r.finished_at).getTime() -
+                new Date(r.started_at).getTime()) /
+                1000,
+            ),
           )
-        )
-      : undefined
+        : undefined,
   );
   if (!reps) return null;
+
   const rpm = reps / mins; // reps per minute
   // Map rpm to 0..100 (tunables)
   let score = Math.round(Math.min(100, Math.max(0, (rpm / 12) * 100)));
+
   // Light technique weighting (guard sessions usually low reps)
   if ((r.technique || "").toLowerCase() === "guard") {
     score = Math.min(100, Math.round(score * 0.8 + 20));
@@ -113,7 +115,7 @@ export default function ProgressPage() {
   // ensure we auto-sync only once per visit
   const syncedRef = useRef(false);
 
-  // 🔹 get current branding (for logo etc.)
+  // branding
   const branding = useBranding();
 
   useEffect(() => {
@@ -133,7 +135,7 @@ export default function ProgressPage() {
         const { data, error } = await supabase
           .from("training_sessions")
           .select(
-            "id, user_id, technique, started_at, finished_at, duration_sec, total_reps"
+            "id, user_id, technique, started_at, finished_at, duration_sec, total_reps",
           )
           .eq("user_id", user.id)
           .order("started_at", { ascending: false });
@@ -204,7 +206,8 @@ export default function ProgressPage() {
             const base: UserProgressInsert = {
               user_id: user.id,
               technique: String(s.technique || "jab"),
-              created_at: new Date().toISOString(),
+              // ✅ better: tie progress record to the session date if available
+              created_at: s.started_at ?? new Date().toISOString(),
               total_reps:
                 typeof s.total_reps === "number"
                   ? Math.max(0, s.total_reps)
@@ -240,7 +243,7 @@ export default function ProgressPage() {
     if (!rows.length) return [];
     const end = endOfDayLocal(new Date());
     const begin = startOfDayLocal(
-      new Date(Date.now() - (rangeDays - 1) * 24 * 60 * 60 * 1000)
+      new Date(Date.now() - (rangeDays - 1) * 24 * 60 * 60 * 1000),
     );
     return rows.filter((r) => {
       if (!r.started_at) return false;
@@ -261,6 +264,7 @@ export default function ProgressPage() {
         avgScore: number | null;
       }
     > = {};
+
     for (const r of filteredRows) {
       if (!r.started_at) continue;
       const k = dayKeyLocal(r.started_at);
@@ -272,39 +276,64 @@ export default function ProgressPage() {
         avgScore: null,
       }).sessions.push(r);
     }
+
     Object.values(map).forEach((d) => {
       let reps = 0,
         mins = 0,
         sSum = 0,
         sCnt = 0;
+
       for (const r of d.sessions) {
         reps += r.total_reps ?? 0;
         mins += minutes(
           typeof r.duration_sec === "number"
             ? r.duration_sec
             : r.started_at && r.finished_at
-            ? Math.max(
-                0,
-                Math.round(
-                  (new Date(r.finished_at).getTime() -
-                    new Date(r.started_at).getTime()) /
-                    1000
+              ? Math.max(
+                  0,
+                  Math.round(
+                    (new Date(r.finished_at).getTime() -
+                      new Date(r.started_at).getTime()) /
+                      1000,
+                  ),
                 )
-              )
-            : undefined
+              : undefined,
         );
+
         const sc = derivedScore(r);
         if (typeof sc === "number") {
           sSum += sc;
           sCnt++;
         }
       }
+
       d.totalReps = reps;
       d.totalMinutes = mins;
       d.avgScore = sCnt ? Math.round(sSum / sCnt) : null;
     });
+
+    // DESC (latest day first) for list sections
     return Object.values(map).sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [filteredRows]);
+
+  /* -------------------- Chart data (ASC left->right) -------------------- */
+  const chartScoreData = useMemo(() => {
+    const asc = [...byDay].reverse();
+    return asc
+      .filter((d) => typeof d.avgScore === "number")
+      .map((d) => ({
+        label: d.date, // YYYY-MM-DD
+        value: d.avgScore as number,
+      }));
+  }, [byDay]);
+
+  const chartRepsData = useMemo(() => {
+    const asc = [...byDay].reverse();
+    return asc.map((d) => ({
+      label: d.date,
+      value: d.totalReps,
+    }));
+  }, [byDay]);
 
   // Summary for selected range
   const summary = useMemo(() => {
@@ -313,6 +342,7 @@ export default function ProgressPage() {
     const avgScore =
       byDay.reduce((a, d) => a + (d.avgScore ?? 0), 0) /
       (byDay.filter((d) => d.avgScore !== null).length || 1);
+
     return {
       totalReps,
       sessionsCount,
@@ -330,8 +360,9 @@ export default function ProgressPage() {
 
     const tips: string[] = [];
     const worst = [...today.sessions].sort(
-      (a, b) => (derivedScore(a) ?? 0) - (derivedScore(b) ?? 0)
+      (a, b) => (derivedScore(a) ?? 0) - (derivedScore(b) ?? 0),
     )[0];
+
     if (worst) {
       const t = (worst.technique || "").toLowerCase();
       if (t === "jab") tips.push("Jab: extend fully, snap, and retract fast.");
@@ -344,6 +375,7 @@ export default function ProgressPage() {
         tips.push("Guard: elbows in, chin down, hands up.");
       else tips.push(`${pretty(worst.technique)}: focus on clean form.`);
     }
+
     if (repsDiff < 0)
       tips.push("Total reps decreased—add a short volume block.");
     if (minDiff < 0)
@@ -364,6 +396,7 @@ export default function ProgressPage() {
       </div>
     );
   }
+
   if (err) {
     return (
       <div
@@ -417,6 +450,7 @@ export default function ProgressPage() {
                 priority
               />
             </Link>
+
             <Link
               href="/dashboard"
               className="rounded-full border px-4 py-2 text-sm font-semibold bg-white hover:bg-neutral-50 transition"
@@ -428,6 +462,7 @@ export default function ProgressPage() {
             >
               ← Back to dashboard
             </Link>
+
             <div className="flex flex-col leading-tight">
               <h1 className="text-xl font-bold">Progress &amp; Drills</h1>
               <p className="text-xs text-neutral-600">
@@ -473,6 +508,35 @@ export default function ProgressPage() {
               <span className="font-semibold">average RPM per day</span>.
             </p>
           </div>
+        </section>
+
+        {/* ✅ Progress Graph */}
+        <section className="rounded-2xl border border-neutral-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">Progress graph</h2>
+              <p className="text-sm text-neutral-600">
+                Daily average score across sessions (selected range).
+              </p>
+            </div>
+            <div className="text-sm font-semibold text-neutral-700">
+              {rangeDays} days
+            </div>
+          </div>
+
+          <div className="mt-4 text-neutral-900">
+            <LineChart data={chartScoreData} />
+          </div>
+
+          {/* Optional: Daily reps chart (uncomment if you want a 2nd graph) */}
+          {/*
+          <div className="mt-8">
+            <div className="text-sm font-semibold text-neutral-700 mb-2">
+              Daily reps
+            </div>
+            <LineChart data={chartRepsData} />
+          </div>
+          */}
         </section>
 
         {/* Day-over-day comparison */}
@@ -549,20 +613,21 @@ export default function ProgressPage() {
                                 typeof s.duration_sec === "number"
                                   ? s.duration_sec
                                   : s.started_at && s.finished_at
-                                  ? Math.max(
-                                      0,
-                                      Math.round(
-                                        (new Date(s.finished_at).getTime() -
-                                          new Date(s.started_at).getTime()) /
-                                          1000
+                                    ? Math.max(
+                                        0,
+                                        Math.round(
+                                          (new Date(s.finished_at).getTime() -
+                                            new Date(s.started_at).getTime()) /
+                                            1000,
+                                        ),
                                       )
-                                    )
-                                  : undefined
+                                    : undefined,
                               )}
                               m · {s.total_reps ?? 0} reps
                             </div>
                           </div>
                         </div>
+
                         <div className={`text-sm font-semibold ${r.color}`}>
                           {r.label} {typeof sc === "number" ? `(${sc}%)` : ""}
                         </div>
@@ -616,8 +681,8 @@ function CompareBadge({
             same
               ? "text-neutral-500"
               : up
-              ? "text-emerald-600"
-              : "text-rose-600"
+                ? "text-emerald-600"
+                : "text-rose-600"
           }`}
         >
           {diff > 0 ? "+" : ""}
@@ -692,6 +757,137 @@ function RangeSwitch({
       >
         30d
       </button>
+    </div>
+  );
+}
+
+/* ------------------------- Simple SVG Line Chart ------------------------- */
+function LineChart({
+  data,
+  height = 180,
+}: {
+  data: { label: string; value: number }[];
+  height?: number;
+}) {
+  const ref = useRef<SVGSVGElement | null>(null);
+
+  const width = 680; // viewBox width (responsive via CSS)
+  const pad = 28;
+
+  if (!data.length) {
+    return (
+      <div className="rounded-xl border border-neutral-200 bg-white px-4 py-6 text-sm text-neutral-600">
+        No chart data in this range.
+      </div>
+    );
+  }
+
+  const vals = data.map((d) => d.value);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+
+  // Avoid flatline division by zero
+  const range = Math.max(1, maxV - minV);
+
+  const innerW = width - pad * 2;
+  const innerH = height - pad * 2;
+
+  const x = (i: number) =>
+    pad + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW);
+
+  const y = (v: number) => pad + (1 - (v - minV) / range) * innerH;
+
+  const path = data
+    .map((d, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(d.value)}`)
+    .join(" ");
+
+  return (
+    <div className="w-full">
+      <svg
+        ref={ref}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-auto"
+        role="img"
+        aria-label="Progress line chart"
+      >
+        {/* grid */}
+        {Array.from({ length: 5 }).map((_, i) => {
+          const yy = pad + (i / 4) * innerH;
+          return (
+            <line
+              key={i}
+              x1={pad}
+              x2={width - pad}
+              y1={yy}
+              y2={yy}
+              stroke="currentColor"
+              opacity={0.08}
+            />
+          );
+        })}
+
+        {/* path */}
+        <path d={path} fill="none" stroke="currentColor" strokeWidth={3} />
+
+        {/* points + value labels */}
+        {data.map((d, i) => (
+          <g key={d.label}>
+            <circle cx={x(i)} cy={y(d.value)} r={5} fill="currentColor" />
+            <text
+              x={x(i)}
+              y={y(d.value) - 10}
+              fontSize="12"
+              textAnchor="middle"
+              fill="currentColor"
+              opacity={0.75}
+            >
+              {d.value}
+            </text>
+          </g>
+        ))}
+
+        {/* x labels (first, mid, last) */}
+        {data.map((d, i) => {
+          const show =
+            i === 0 ||
+            i === data.length - 1 ||
+            i === Math.floor(data.length / 2);
+          if (!show) return null;
+          return (
+            <text
+              key={d.label + "-x"}
+              x={x(i)}
+              y={height - 8}
+              fontSize="12"
+              textAnchor="middle"
+              fill="currentColor"
+              opacity={0.55}
+            >
+              {d.label.slice(5)} {/* MM-DD */}
+            </text>
+          );
+        })}
+
+        {/* y axis min/max */}
+        <text
+          x={6}
+          y={pad + 6}
+          fontSize="12"
+          fill="currentColor"
+          opacity={0.55}
+        >
+          {maxV}
+        </text>
+        <text
+          x={6}
+          y={height - pad}
+          fontSize="12"
+          fill="currentColor"
+          opacity={0.55}
+        >
+          {minV}
+        </text>
+      </svg>
     </div>
   );
 }

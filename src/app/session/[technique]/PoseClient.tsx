@@ -1,7 +1,7 @@
 // app/session/[technique]/PoseClient.tsx
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { drawBBoxAndLabel, drawKeypoints, drawSkeleton } from "../_pose/draw";
 import { supabase } from "../../lib/supabaseClient";
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
@@ -14,8 +14,15 @@ type Stance = "orthodox" | "southpaw";
 type Props = { technique: TechniqueName; stance?: Stance };
 type KP = { x: number; y: number; z?: number; score?: number; name?: string };
 type Arm = "left" | "right";
-type LogItem = { ts: number; kind: "ok" | "warn"; text: string };
-type LogDraft = Omit<LogItem, "ts">;
+
+type LogItem = {
+  ts: number;
+  kind: "ok" | "warn";
+  text: string;
+  count?: number; // merged duplicates
+};
+
+type LogDraft = Omit<LogItem, "ts" | "count">;
 
 type UserProgressInsert = {
   user_id: string;
@@ -69,7 +76,7 @@ const NAMES = [
 function syncCanvasToCSS(canvas: HTMLCanvasElement) {
   const dpr = Math.max(
     1,
-    (typeof window !== "undefined" ? window.devicePixelRatio : 1) || 1
+    (typeof window !== "undefined" ? window.devicePixelRatio : 1) || 1,
   );
   const rect = canvas.getBoundingClientRect();
   const w = Math.floor(rect.width * dpr);
@@ -89,7 +96,7 @@ function toKeypoints(
     | { x: number; y: number; z?: number; visibility?: number }[]
     | undefined,
   canvasW: number,
-  canvasH: number
+  canvasH: number,
 ): KP[] {
   if (!landmarks || !landmarks.length) return [];
   return landmarks.map((p, i) => {
@@ -128,7 +135,7 @@ const leadArm = (stance?: Stance): Arm =>
 function computeAccuracy(
   technique: string,
   totalReps: number,
-  durationSec: number
+  durationSec: number,
 ): number | null {
   const mins = Math.max(1, Math.round(durationSec / 60));
   if (!totalReps || mins <= 0) return null;
@@ -148,8 +155,21 @@ export default function PoseClient({ technique, stance }: Props) {
   const rafRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
+  // countdown timers refs
+  const countdownIntervalRef = useRef<number | null>(null);
+  const countdownStartTimeoutRef = useRef<number | null>(null);
+
+  // anti-flood log refs
+  const lastWarnByTextRef = useRef<Record<string, number>>({});
+  const lastOkByTextRef = useRef<Record<string, number>>({});
+
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [countingDown, setCountingDown] = useState(false);
+  const [countdownValue, setCountdownValue] = useState<number | "START" | null>(
+    null,
+  );
+
   const [error, setError] = useState<string | null>(null);
   const [reps, setReps] = useState(0);
   const [log, setLog] = useState<LogItem[]>([]);
@@ -215,7 +235,7 @@ export default function PoseClient({ technique, stance }: Props) {
     {
       left: "idle",
       right: "idle",
-    }
+    },
   );
   const upPeak = useRef<{
     left: {
@@ -247,12 +267,41 @@ export default function PoseClient({ technique, stance }: Props) {
   const guardLastHintTs = useRef(0);
   const guardSecondsRef = useRef(0);
 
+  /* -------------------------------- cleanup helpers -------------------------------- */
+  const clearCountdownTimers = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (countdownStartTimeoutRef.current) {
+      window.clearTimeout(countdownStartTimeoutRef.current);
+      countdownStartTimeoutRef.current = null;
+    }
+    setCountingDown(false);
+    setCountdownValue(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearCountdownTimers();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      (videoRef.current?.srcObject as MediaStream | null)
+        ?.getTracks()
+        .forEach((t) => t.stop());
+      try {
+        landmarkerRef.current?.close();
+      } catch {}
+      landmarkerRef.current = null;
+    };
+  }, [clearCountdownTimers]);
+
   /* -------------------------------- camera -------------------------------- */
   const initCamera = useCallback(async () => {
     const video = videoRef.current!;
     (video.srcObject as MediaStream | null)
       ?.getTracks()
       .forEach((t) => t.stop());
+
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: "user",
@@ -262,13 +311,15 @@ export default function PoseClient({ technique, stance }: Props) {
       },
       audio: false,
     });
+
     video.srcObject = stream;
     try {
       await video.play();
     } catch {}
+
     if (video.readyState < 2) {
       await new Promise<void>((res) =>
-        video.addEventListener("loadeddata", () => res(), { once: true })
+        video.addEventListener("loadeddata", () => res(), { once: true }),
       );
     }
     return video;
@@ -277,7 +328,7 @@ export default function PoseClient({ technique, stance }: Props) {
   /* --------------------------- mediapipe landmarker ------------------------ */
   const initLandmarker = useCallback(async () => {
     const filesetResolver = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm",
     );
     const lm = await PoseLandmarker.createFromOptions(filesetResolver, {
       baseOptions: {
@@ -321,7 +372,7 @@ export default function PoseClient({ technique, stance }: Props) {
       if (sid.startsWith("local-")) return;
       const durationSec = Math.max(
         0,
-        Math.round((Date.now() - startedAt) / 1000)
+        Math.round((Date.now() - startedAt) / 1000),
       );
       await supabase
         .from("training_sessions")
@@ -332,7 +383,7 @@ export default function PoseClient({ technique, stance }: Props) {
         })
         .eq("id", sid);
     },
-    []
+    [],
   );
 
   /* ---------------------------- auto-log progress ---------------------------- */
@@ -341,7 +392,7 @@ export default function PoseClient({ technique, stance }: Props) {
       sid: string,
       tech: string,
       totalReps: number,
-      durationSec: number
+      durationSec: number,
     ) => {
       if (sid.startsWith("local-")) return;
 
@@ -389,7 +440,7 @@ export default function PoseClient({ technique, stance }: Props) {
         console.warn("user_progress auto insert failed:", error.message);
       }
     },
-    []
+    [],
   );
 
   /* -------------------------------- drawing ------------------------------- */
@@ -414,33 +465,33 @@ export default function PoseClient({ technique, stance }: Props) {
         ctx.fillText("No pose detected", 16, 30);
         ctx.fillText("Move closer to camera", 16, 46);
       } else {
-        // cast through unknown to avoid explicit 'any'
         drawSkeleton(
           ctx as unknown as CanvasRenderingContext2D,
-          kps as unknown as KP[]
+          kps as unknown as KP[],
         );
         drawKeypoints(
           ctx as unknown as CanvasRenderingContext2D,
-          kps as unknown as KP[]
+          kps as unknown as KP[],
         );
         drawBBoxAndLabel(
           ctx as unknown as CanvasRenderingContext2D,
-          kps as unknown as KP[]
+          kps as unknown as KP[],
         );
       }
 
+      // bottom HUD
       ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.fillRect(8, height - 58, 220, 50);
+      ctx.fillRect(8, height - 58, 260, 50);
       ctx.fillStyle = "#fff";
       ctx.font = "14px sans-serif";
       ctx.fillText(`Technique: ${technique}`, 16, height - 34);
       ctx.fillText(
         `${technique === "guard" ? "Hold (s)" : "Reps"}: ${reps}`,
         16,
-        height - 14
+        height - 14,
       );
     },
-    [technique, reps]
+    [technique, reps],
   );
 
   /* ----------------------------- Shared helpers --------------------------- */
@@ -449,6 +500,7 @@ export default function PoseClient({ technique, stance }: Props) {
     for (const k of kps) if (k?.name) m[k.name] = k;
     return m;
   }
+
   function evalArm(kps: KP[], arm: Arm) {
     const k = kpMap(kps);
     const s = k[`${arm}_shoulder`];
@@ -457,11 +509,11 @@ export default function PoseClient({ technique, stance }: Props) {
     const ls = k["left_shoulder"],
       rs = k["right_shoulder"];
     const bodyScale = dist(ls, rs) || 1; // shoulder width
-    const elbow = angleDeg(s, e, w); // straight ≈ 180
+    const elbow = angleDeg(s, e, w);
     const alignY = Math.abs((w?.y ?? 0) - (s?.y ?? 0)) / bodyScale;
     const extension = dist(s, w) / bodyScale;
     const lateral = Math.abs((w?.x ?? 0) - (s?.x ?? 0)) / bodyScale;
-    const rise = ((s?.y ?? 0) - (w?.y ?? 0)) / bodyScale; // wrist above shoulder => positive
+    const rise = ((s?.y ?? 0) - (w?.y ?? 0)) / bodyScale;
     return {
       elbow,
       alignY,
@@ -477,11 +529,70 @@ export default function PoseClient({ technique, stance }: Props) {
     };
   }
 
-  const pushLog = (item: LogDraft) =>
-    setLog((prev) => {
-      const next = [{ ...item, ts: Date.now() }, ...prev];
-      return next.slice(0, 12);
-    });
+  // Smart log pusher (anti-flood + merge duplicates)
+  const pushLog = useCallback(
+    (
+      item: LogDraft,
+      opts?: {
+        dedupeWindowMs?: number;
+        throttleMs?: number;
+      },
+    ) => {
+      const now = Date.now();
+      const dedupeWindowMs =
+        opts?.dedupeWindowMs ?? (item.kind === "warn" ? 2200 : 900);
+      const throttleMs = opts?.throttleMs ?? (item.kind === "warn" ? 700 : 0);
+
+      const store =
+        item.kind === "warn"
+          ? lastWarnByTextRef.current
+          : lastOkByTextRef.current;
+
+      const lastTs = store[item.text] ?? 0;
+      if (throttleMs > 0 && now - lastTs < throttleMs) return;
+      store[item.text] = now;
+
+      setLog((prev) => {
+        const first = prev[0];
+        if (
+          first &&
+          first.kind === item.kind &&
+          first.text === item.text &&
+          now - first.ts <= dedupeWindowMs
+        ) {
+          const merged: LogItem = {
+            ...first,
+            ts: now,
+            count: (first.count ?? 1) + 1,
+          };
+          return [merged, ...prev.slice(1)].slice(0, 12);
+        }
+
+        const idx = prev.findIndex(
+          (x) =>
+            x.kind === item.kind &&
+            x.text === item.text &&
+            now - x.ts <= dedupeWindowMs,
+        );
+
+        if (idx >= 0) {
+          const updated = [...prev];
+          const existing = updated[idx];
+          const merged: LogItem = {
+            ...existing,
+            ts: now,
+            count: (existing.count ?? 1) + 1,
+          };
+          updated.splice(idx, 1);
+          return [merged, ...updated].slice(0, 12);
+        }
+
+        const next: LogItem[] = [{ ...item, ts: now, count: 1 }, ...prev];
+        return next.slice(0, 12);
+      });
+    },
+    [],
+  );
 
   /* ----------------------------- Jab (lead-only) -------------------------- */
   function processJab(kps: KP[]) {
@@ -490,6 +601,7 @@ export default function PoseClient({ technique, stance }: Props) {
     const R = evalArm(kps, "right");
     const active: Arm = L.extension >= R.extension ? "left" : "right";
     const mustBe: Arm = leadArm(stance);
+
     if (active !== mustBe) {
       pushLog({
         kind: "warn",
@@ -500,6 +612,7 @@ export default function PoseClient({ technique, stance }: Props) {
       lastRatio.current[active] = 0;
       return;
     }
+
     const m = active === "left" ? L : R;
 
     const ratio = m.extension;
@@ -524,23 +637,23 @@ export default function PoseClient({ technique, stance }: Props) {
         const straight = p.elbow >= 160;
         const aligned = p.align <= 0.18;
         const bigReach = p.ratio >= PEAK_MIN;
+
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct jab (${mustBe} arm)` });
-          {
-            const sid = sessionIdRef.current;
-            if (sid && !sid.startsWith("local-")) {
-              supabase
-                .from("session_reps")
-                .insert({ session_id: sid })
-                .then(({ error }) => {
-                  if (error)
-                    pushLog({
-                      kind: "warn",
-                      text: `Save failed: ${error.message}`,
-                    });
-                });
-            }
+
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => {
+                if (error)
+                  pushLog({
+                    kind: "warn",
+                    text: `Save failed: ${error.message}`,
+                  });
+              });
           }
         } else {
           const tips = [
@@ -593,20 +706,19 @@ export default function PoseClient({ technique, stance }: Props) {
         if (straight && aligned && bigReach) {
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct cross (${active} arm)` });
-          {
-            const sid = sessionIdRef.current;
-            if (sid && !sid.startsWith("local-")) {
-              supabase
-                .from("session_reps")
-                .insert({ session_id: sid })
-                .then(({ error }) => {
-                  if (error)
-                    pushLog({
-                      kind: "warn",
-                      text: `Save failed: ${error.message}`,
-                    });
-                });
-            }
+
+          const sid = sessionIdRef.current;
+          if (sid && !sid.startsWith("local-")) {
+            supabase
+              .from("session_reps")
+              .insert({ session_id: sid })
+              .then(({ error }) => {
+                if (error)
+                  pushLog({
+                    kind: "warn",
+                    text: `Save failed: ${error.message}`,
+                  });
+              });
           }
         } else {
           const tips = [
@@ -629,7 +741,7 @@ export default function PoseClient({ technique, stance }: Props) {
     lastRatio.current[active] = ratio;
   }
 
-  /* ----------------------------- Hook (both arms; side-face contact OR kinematics) ----- */
+  /* ----------------------------- Hook ------------------------------------- */
   function processHook(kps: KP[]) {
     if (!kps.length) return;
 
@@ -653,13 +765,14 @@ export default function PoseClient({ technique, stance }: Props) {
       nose && facePts.length
         ? facePts.filter((p) => p.x <= nose.x)
         : facePts.filter(
-            (p) => p.name?.startsWith("left") || p.name === "nose"
+            (p) => p.name?.startsWith("left") || p.name === "nose",
           );
+
     const rightFaceHalf =
       nose && facePts.length
         ? facePts.filter((p) => p.x >= nose.x)
         : facePts.filter(
-            (p) => p.name?.startsWith("right") || p.name === "nose"
+            (p) => p.name?.startsWith("right") || p.name === "nose",
           );
 
     const le = k["left_eye"],
@@ -705,6 +818,7 @@ export default function PoseClient({ technique, stance }: Props) {
         sidePts.length && handPts.length
           ? Math.min(...handPts.flatMap((h) => sidePts.map((f) => dist(h, f))))
           : Infinity;
+
       const contactOk =
         Number.isFinite(minDistToSide) && minDistToSide <= CONTACT_R;
 
@@ -735,6 +849,7 @@ export default function PoseClient({ technique, stance }: Props) {
           hookContacted.current[arm] = true;
           setReps((r) => r + 1);
           pushLog({ kind: "ok", text: `Correct hook (${arm} arm) — good job` });
+
           const sid = sessionIdRef.current;
           if (sid && !sid.startsWith("local-")) {
             supabase
@@ -748,6 +863,7 @@ export default function PoseClient({ technique, stance }: Props) {
                   });
               });
           }
+
           hookPhase.current[arm] = "idle";
           hookPeak.current[arm] = null;
         } else {
@@ -762,6 +878,7 @@ export default function PoseClient({ technique, stance }: Props) {
             if (elbowOk && alignOk && latOk && notCross && shoulderHeightOk) {
               setReps((r) => r + 1);
               pushLog({ kind: "ok", text: `Correct hook (${arm} arm)` });
+
               const sid = sessionIdRef.current;
               if (sid && !sid.startsWith("local-")) {
                 supabase
@@ -790,6 +907,7 @@ export default function PoseClient({ technique, stance }: Props) {
                 text: `Adjust your hook (${arm}): ${tips}`,
               });
             }
+
             hookPhase.current[arm] = "idle";
             hookPeak.current[arm] = null;
           }
@@ -803,7 +921,7 @@ export default function PoseClient({ technique, stance }: Props) {
     doArm("right");
   }
 
-  /* --------------------------- Uppercut (improved + eye contact) ---------- */
+  /* --------------------------- Uppercut ----------------------------------- */
   function processUppercut(kps: KP[]) {
     if (!kps.length) return;
 
@@ -845,6 +963,7 @@ export default function PoseClient({ technique, stance }: Props) {
     ]
       .map((n) => k[n])
       .filter(Boolean) as KP[];
+
     const handPts = [
       k[`${active}_wrist`],
       k[`${active}_index`],
@@ -863,11 +982,13 @@ export default function PoseClient({ technique, stance }: Props) {
       const xs = eyes.map((p) => p.x);
       faceWidth = Math.max(...xs) - Math.min(...xs);
     }
+
     const S = m.bodyScale || 1;
     const CONTACT_R = Math.max(0.18 * S, 0.6 * (faceWidth || S));
 
     const minDistToEyes = (pts: KP[]) =>
       Math.min(...pts.flatMap((p) => eyes.map((e) => dist(p, e))));
+
     const eyeContact =
       eyes.length >= 2 && handPts.length >= 2
         ? Number.isFinite(minDistToEyes(handPts)) &&
@@ -908,6 +1029,7 @@ export default function PoseClient({ technique, stance }: Props) {
               eyeContact ? " — good job" : ""
             }`,
           });
+
           const sid = sessionIdRef.current;
           if (sid && !sid.startsWith("local-")) {
             supabase
@@ -935,6 +1057,7 @@ export default function PoseClient({ technique, stance }: Props) {
             text: `Adjust your uppercut (${active}): ${tips}`,
           });
         }
+
         upPhase.current[active] = "idle";
         upPeak.current[active] = null;
       }
@@ -943,7 +1066,7 @@ export default function PoseClient({ technique, stance }: Props) {
     upLastRise.current[active] = emaCurr;
   }
 
-  /* ----------------------------- Guard (3 hand dots vs 9 face dots) --------------------- */
+  /* ----------------------------- Guard ------------------------------------ */
   function processGuard(kps: KP[]) {
     if (!kps.length) return;
 
@@ -1011,29 +1134,30 @@ export default function PoseClient({ technique, stance }: Props) {
 
     if (bothOK) {
       guardAccumMs.current += dt;
+
       if (!guardWasUp.current) {
         pushLog({ kind: "ok", text: "Guard up — both hands covering face." });
         guardWasUp.current = true;
       }
+
       const STEP = 1000;
       while (guardAccumMs.current >= STEP) {
         setReps((r) => r + 1);
         guardAccumMs.current -= STEP;
         pushLog({ kind: "ok", text: "Guard maintained — solid cover!" });
-        {
-          const sid = sessionIdRef.current;
-          if (sid && !sid.startsWith("local-")) {
-            supabase
-              .from("session_reps")
-              .insert({ session_id: sid })
-              .then(({ error }) => {
-                if (error)
-                  pushLog({
-                    kind: "warn",
-                    text: `Save failed: ${error.message}`,
-                  });
-              });
-          }
+
+        const sid = sessionIdRef.current;
+        if (sid && !sid.startsWith("local-")) {
+          supabase
+            .from("session_reps")
+            .insert({ session_id: sid })
+            .then(({ error }) => {
+              if (error)
+                pushLog({
+                  kind: "warn",
+                  text: `Save failed: ${error.message}`,
+                });
+            });
         }
       }
     } else {
@@ -1066,7 +1190,7 @@ export default function PoseClient({ technique, stance }: Props) {
 
     const result = landmarkerRef.current.detectForVideo(
       video,
-      performance.now()
+      performance.now(),
     );
 
     let kps: KP[] = [];
@@ -1086,25 +1210,34 @@ export default function PoseClient({ technique, stance }: Props) {
     }
 
     rafRef.current = requestAnimationFrame(loop);
-  }, [
-    draw,
-    technique,
-    stance,
-    processJab,
-    processCross,
-    processHook,
-    processUppercut,
-    processGuard,
-  ]);
+  }, [draw, technique, stance]);
+
+  /* ------------------------------ begin after countdown ------------------------------ */
+  const beginTrackingAfterCountdown = useCallback(async () => {
+    const sid = await startSupabaseSession(technique);
+    await audit("session.start", { session_id: sid, technique });
+
+    sessionIdRef.current = sid;
+    setStartedAtMs(Date.now());
+    setRunning(true);
+
+    pushLog({ kind: "ok", text: "Session started. Begin your movement." });
+
+    rafRef.current = requestAnimationFrame(loop);
+  }, [loop, startSupabaseSession, technique, pushLog]);
 
   /* ------------------------------ start/stop ------------------------------ */
   const start = useCallback(async () => {
-    if (running || loading) return;
+    if (running || loading || countingDown) return;
+
     setLoading(true);
     setError(null);
     setReps(0);
     setLog([]);
+    lastWarnByTextRef.current = {};
+    lastOkByTextRef.current = {};
 
+    // reset counters
     guardAccumMs.current = 0;
     guardWasUp.current = false;
     guardLastTs.current = null;
@@ -1114,18 +1247,49 @@ export default function PoseClient({ technique, stance }: Props) {
     try {
       const video = await initCamera();
       landmarkerRef.current = await initLandmarker();
+
+      // warm-up detect once
       try {
         landmarkerRef.current.detectForVideo(video, performance.now());
       } catch {}
-      const sid = await startSupabaseSession(technique);
-      await audit("session.start", { session_id: sid, technique });
-      sessionIdRef.current = sid;
-      setStartedAtMs(Date.now());
-      setRunning(true);
+
+      // Draw first frame immediately so user sees camera before countdown
+      draw([]);
+
       setLoading(false);
-      rafRef.current = requestAnimationFrame(loop);
+      setCountingDown(true);
+      setCountdownValue(3);
+      pushLog({
+        kind: "ok",
+        text: "Get ready... session starts in 3 seconds.",
+      });
+
+      let n = 3;
+      countdownIntervalRef.current = window.setInterval(() => {
+        n -= 1;
+
+        if (n >= 1) {
+          setCountdownValue(n);
+          return;
+        }
+
+        // show START briefly
+        if (countdownIntervalRef.current) {
+          window.clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+        }
+
+        setCountdownValue("START");
+
+        countdownStartTimeoutRef.current = window.setTimeout(async () => {
+          setCountdownValue(null);
+          setCountingDown(false);
+          await beginTrackingAfterCountdown();
+        }, 650);
+      }, 1000);
     } catch (err) {
       console.error("[start] failed:", err);
+      clearCountdownTimers();
       setLoading(false);
       setRunning(false);
       setError("Failed to start. Check camera permissions and reload.");
@@ -1133,14 +1297,19 @@ export default function PoseClient({ technique, stance }: Props) {
   }, [
     running,
     loading,
+    countingDown,
     initCamera,
     initLandmarker,
-    startSupabaseSession,
-    technique,
-    loop,
+    draw,
+    beginTrackingAfterCountdown,
+    clearCountdownTimers,
+    pushLog,
   ]);
 
   const stop = useCallback(async () => {
+    // stop countdown if active
+    clearCountdownTimers();
+
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     setRunning(false);
@@ -1149,6 +1318,7 @@ export default function PoseClient({ technique, stance }: Props) {
     (videoRef.current?.srcObject as MediaStream | null)
       ?.getTracks()
       .forEach((t) => t.stop());
+
     try {
       landmarkerRef.current?.close();
     } catch {}
@@ -1160,36 +1330,34 @@ export default function PoseClient({ technique, stance }: Props) {
 
     sessionIdRef.current = null;
 
+    // If user stopped before actual tracking started (during countdown), just reset UI (no summary page)
+    if (!sid || started == null) {
+      return;
+    }
+
     try {
-      if (sid && started != null) {
-        const durationSec = Math.max(
-          0,
-          Math.round((Date.now() - started) / 1000)
-        );
+      const durationSec = Math.max(
+        0,
+        Math.round((Date.now() - started) / 1000),
+      );
 
-        await finishSupabaseSession(sid, repCount, started);
+      await finishSupabaseSession(sid, repCount, started);
 
-        if (!sid.startsWith("local-")) {
-          try {
-            await audit("session.finish", {
-              session_id: sid,
-              technique,
-              total_reps: repCount ?? 0,
-              duration_sec: durationSec,
-            });
-          } catch (e) {
-            console.warn("audit session.finish failed", e);
-          }
-          try {
-            await autoLogUserProgress(
-              sid,
-              technique,
-              repCount ?? 0,
-              durationSec
-            );
-          } catch (e) {
-            console.warn("autoLogUserProgress failed", e);
-          }
+      if (!sid.startsWith("local-")) {
+        try {
+          await audit("session.finish", {
+            session_id: sid,
+            technique,
+            total_reps: repCount ?? 0,
+            duration_sec: durationSec,
+          });
+        } catch (e) {
+          console.warn("audit session.finish failed", e);
+        }
+        try {
+          await autoLogUserProgress(sid, technique, repCount ?? 0, durationSec);
+        } catch (e) {
+          console.warn("autoLogUserProgress failed", e);
         }
       }
     } finally {
@@ -1201,6 +1369,7 @@ export default function PoseClient({ technique, stance }: Props) {
       router.push(`/summary?${qp}`);
     }
   }, [
+    clearCountdownTimers,
     finishSupabaseSession,
     reps,
     startedAtMs,
@@ -1212,24 +1381,38 @@ export default function PoseClient({ technique, stance }: Props) {
   /* ---------------------------------- UI ---------------------------------- */
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 items-center">
+      <div className="flex gap-2 items-center flex-wrap">
         <button
           className="px-4 py-2 rounded bg-black text-white disabled:opacity-60"
           onClick={start}
-          disabled={running || loading}
+          disabled={running || loading || countingDown}
         >
-          {loading ? "Initializing…" : running ? "Running…" : "Start now"}
+          {loading
+            ? "Initializing…"
+            : countingDown
+              ? "Get ready…"
+              : running
+                ? "Running…"
+                : "Start now"}
         </button>
 
-        {running && (
+        {(running || countingDown || loading) && (
           <button className="px-4 py-2 rounded bg-gray-200" onClick={stop}>
-            Stop
+            {running ? "Stop" : "Cancel"}
           </button>
         )}
 
         <div className="px-3 py-2 border rounded">
           {technique === "guard" ? "Hold (s)" : "Reps"}: {reps}
         </div>
+
+        {countingDown && (
+          <div className="px-3 py-2 rounded border bg-yellow-50 text-yellow-800 text-sm">
+            Starting in{" "}
+            {typeof countdownValue === "number" ? countdownValue : "…"}
+          </div>
+        )}
+
         {error && <div className="text-red-600 text-sm">{error}</div>}
       </div>
 
@@ -1241,27 +1424,78 @@ export default function PoseClient({ technique, stance }: Props) {
             ref={canvasRef}
             className="absolute inset-0 w-full h-full rounded pointer-events-none z-50"
           />
+
+          {/* Countdown overlay inside camera frame */}
+          {countdownValue !== null && (
+            <div className="absolute inset-0 z-[60] rounded flex items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 bg-black/30 rounded" />
+              <div
+                className={`relative px-8 py-5 rounded-2xl border border-white/30 text-white font-extrabold shadow-2xl backdrop-blur-sm ${
+                  countdownValue === "START"
+                    ? "text-4xl md:text-6xl bg-emerald-500/70"
+                    : "text-5xl md:text-7xl bg-black/45"
+                }`}
+              >
+                {countdownValue}
+              </div>
+            </div>
+          )}
+
+          {/* Hint overlay */}
+          {!running && !countingDown && !loading && (
+            <div className="absolute left-3 top-3 z-[55] rounded-lg bg-black/60 text-white text-sm px-3 py-2 pointer-events-none">
+              Stand in frame, guard up, then press{" "}
+              <span className="font-semibold">Start now</span>
+            </div>
+          )}
         </div>
 
         {/* Side log panel */}
         <div className="border rounded-lg p-3 h-[420px] overflow-auto bg-white/80">
           <div className="font-semibold mb-2">Technique log</div>
-          {log.length === 0 ? (
+
+          {!running && !countingDown && log.length === 0 ? (
+            <div className="text-sm text-gray-500 space-y-2">
+              <p>Your feedback will appear here while you move.</p>
+              <p>
+                Press <span className="font-semibold">Start now</span> to open
+                the camera and begin a{" "}
+                <span className="font-semibold">3-2-1 countdown</span>.
+              </p>
+            </div>
+          ) : log.length === 0 ? (
             <div className="text-sm text-gray-500">
-              Your feedback will appear here while you move.
+              Waiting for movement feedback…
             </div>
           ) : (
             <ul className="space-y-2">
               {log.map((item) => (
-                <li key={item.ts} className="text-sm">
-                  <span
-                    className={
-                      item.kind === "ok" ? "text-green-700" : "text-amber-700"
-                    }
-                  >
-                    {item.kind === "ok" ? "✅" : "⚠️"}{" "}
-                    {new Date(item.ts).toLocaleTimeString()} — {item.text}
-                  </span>
+                <li
+                  key={`${item.kind}-${item.text}-${item.ts}`}
+                  className={`text-sm rounded-md border px-3 py-2 ${
+                    item.kind === "ok"
+                      ? "bg-green-50 border-green-200 text-green-800"
+                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 leading-snug">
+                      <span className="font-medium mr-1">
+                        {item.kind === "ok" ? "✅" : "⚠️"}
+                      </span>
+                      <span>{item.text}</span>
+
+                      {(item.count ?? 1) > 1 && (
+                        <span className="ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold bg-white/70">
+                          x{item.count}
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="shrink-0 text-[11px] opacity-70">
+                      {new Date(item.ts).toLocaleTimeString()}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>

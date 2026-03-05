@@ -5,14 +5,14 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-/** Request body validator (no `any`) */
+/* Request body validator  */
 const DeleteSessionBody = z.object({
   session_id: z.string().min(1, "session_id is required"),
 });
 
 export async function POST(req: NextRequest) {
   try {
-    // 1) Grab Bearer token from header
+    // Grab Bearer token from header
     const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
@@ -34,14 +34,14 @@ export async function POST(req: NextRequest) {
       auth: { persistSession: false },
     });
 
-    // 3) Validate the caller with the token
+    // Validate the caller with the token
     const { data: authUser, error: authErr } = await admin.auth.getUser(token);
     if (authErr || !authUser?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const callerId = authUser.user.id;
 
-    // 4) Check role (must be super_admin)
+    // Check role (must be super_admin)
     const { data: me, error: meErr } = await admin
       .from("users")
       .select("user_role")

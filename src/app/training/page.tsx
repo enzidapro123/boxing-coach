@@ -7,6 +7,11 @@ import Image from "next/image";
 import { supabase } from "../lib/supabaseClient";
 import { useBranding } from "@/app/branding-provider";
 
+type TechniqueCard = {
+  name: "Jab" | "Cross" | "Hook" | "Uppercut" | "Guard";
+  hasIntro?: boolean;
+};
+
 export default function TrainingPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -33,8 +38,8 @@ export default function TrainingPage() {
     getUser();
   }, []);
 
-  const techniques = [
-    { name: "Jab" },
+  const techniques: TechniqueCard[] = [
+    { name: "Jab", hasIntro: true }, // ✅ Jab gets intro page button
     { name: "Cross" },
     { name: "Hook" },
     { name: "Uppercut" },
@@ -74,9 +79,8 @@ export default function TrainingPage() {
       {/* Top Navbar */}
       <header className="sticky top-0 z-50 border-b border-neutral-200/50 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
-          {/* Left section: Icon + Back to Dashboard */}
+          {/* Left section */}
           <div className="flex items-center gap-3">
-            {/* Logo */}
             <Link
               href="/"
               className="flex items-center gap-2 hover:opacity-80 transition"
@@ -92,7 +96,6 @@ export default function TrainingPage() {
               />
             </Link>
 
-            {/* Back button */}
             <Link
               href="/dashboard"
               className="px-4 py-2 rounded-lg text-white font-semibold text-sm shadow-lg shadow-black/15 hover:scale-[1.03] transition"
@@ -146,57 +149,90 @@ export default function TrainingPage() {
 
           {/* Techniques Grid */}
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {techniques.map((t) => (
-              <Link
-                key={t.name}
-                href={`/session/${t.name.toLowerCase()}`}
-                className="group relative rounded-3xl border bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
-                prefetch
-                style={{
-                  borderColor: "var(--primary-color, #f97316)",
-                }}
-              >
-                {/* Hover aura */}
+            {techniques.map((t) => {
+              const slug = t.name.toLowerCase();
+
+              return (
                 <div
-                  className="pointer-events-none absolute -inset-1 rounded-3xl opacity-0 group-hover:opacity-25 blur transition"
-                  style={{
-                    background:
-                      "linear-gradient(to bottom right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
-                  }}
-                />
-                <div className="relative">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-2xl font-bold">{t.name}</h3>
+                  key={t.name}
+                  className="group relative rounded-3xl border bg-white/80 backdrop-blur p-7 shadow-sm hover:shadow-md transition"
+                  style={{ borderColor: "var(--primary-color, #f97316)" }}
+                >
+                  {/* Hover aura */}
+                  <div
+                    className="pointer-events-none absolute -inset-1 rounded-3xl opacity-0 group-hover:opacity-25 blur transition"
+                    style={{
+                      background:
+                        "linear-gradient(to bottom right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                    }}
+                  />
+
+                  <div className="relative">
+                    <h3 className="text-2xl font-bold">{t.name}</h3>
+
+                    <p className="mt-2 text-sm text-neutral-600">
+                      {t.name === "Jab"
+                        ? "Begin your jab training session or review the basic jab introduction first."
+                        : `Begin your ${slug} training session.`}
+                    </p>
+
+                    {/* Buttons */}
+                    <div className="mt-6 flex flex-wrap items-center gap-3">
+                      {/* Start */}
+                      <Link
+                        href={`/session/${slug}`}
+                        prefetch
+                        className="inline-flex items-center gap-2 rounded-full border-2 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition hover:bg-red-50"
+                        style={{ borderColor: "var(--primary-color, #ef4444)" }}
+                      >
+                        Start now
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 7l5 5m0 0l-5 5m5-5H6"
+                          />
+                        </svg>
+                      </Link>
+
+                      {/* Jab intro only */}
+                      {t.hasIntro && (
+                        <Link
+                          href="/techniques/jab"
+                          prefetch
+                          className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:scale-[1.02]"
+                          style={{
+                            background:
+                              "linear-gradient(to right, var(--primary-color, #ef4444), var(--secondary-color, #f97316))",
+                          }}
+                        >
+                          Learn jab
+                          <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 16l4-4m0 0l-4-4m4 4H8"
+                            />
+                          </svg>
+                        </Link>
+                      )}
                     </div>
                   </div>
-                  <p className="mt-2 text-sm text-neutral-600">
-                    Begin your {t.name.toLowerCase()} training session.
-                  </p>
-                  <div
-                    className="mt-6 inline-flex items-center gap-2 rounded-full border-2 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 transition group-hover:bg-red-50"
-                    style={{
-                      borderColor: "var(--primary-color, #ef4444)",
-                    }}
-                  >
-                    Start now
-                    <svg
-                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 7l5 5m0 0l-5 5m5-5H6"
-                      />
-                    </svg>
-                  </div>
                 </div>
-              </Link>
-            ))}
+              );
+            })}
           </section>
 
           {/* Bottom CTA */}
